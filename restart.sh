@@ -15,6 +15,17 @@ for required_command in node npm; do
   fi
 done
 
+node_version="$(node -p 'process.versions.node')"
+node_major="${node_version%%.*}"
+node_remainder="${node_version#*.}"
+node_minor="${node_remainder%%.*}"
+
+if ! { [[ "$node_major" -eq 20 && "$node_minor" -ge 19 ]] || [[ "$node_major" -eq 22 && "$node_minor" -ge 12 ]] || [[ "$node_major" -gt 22 ]]; }; then
+  echo "Error: Dadras requires Node.js 20.19+ or 22.12+. Found Node.js $node_version." >&2
+  echo "Upgrade Node.js on the VPS, then run ./restart.sh again." >&2
+  exit 1
+fi
+
 echo "Installing locked dependencies..."
 npm ci
 

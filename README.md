@@ -16,7 +16,7 @@ Dadras and Ollama listen only on the VPS loopback interface. Do not expose port 
 
 ### 1. Install Node.js, Git, and Nginx
 
-Install Node.js 20 or newer using your preferred Ubuntu method, then confirm:
+Install Node.js `20.19+` or `22.12+` using your preferred Ubuntu method. Node.js 18 is not supported by the Vite/Rolldown build toolchain. Then confirm:
 
 ```bash
 node --version
