@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeft, BookOpenCheck, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, FileText, Gavel, Info, Menu, Pause, Play, RotateCcw, Scale, Search, Shield, ShieldCheck, Sparkles, Upload, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Upload, Wifi, X } from 'lucide-react'
 import { agents, legalCitations, sampleCases } from './data'
-import type { CaseData } from './types'
+import type { AgentResponse, CaseData, LlmSettings } from './types'
 
 type Screen = 'home' | 'workspace'
 type Tab = 'agents' | 'verdict' | 'citations'
+type ConnectionState = 'untested' | 'testing' | 'connected' | 'failed'
+
+const defaultSettings: LlmSettings = { provider: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: 'gemma3:4b', apiKey: '', temperature: 0.2 }
 
 const faNumber = (value: number) => new Intl.NumberFormat('fa-IR').format(value)
 
@@ -16,6 +19,14 @@ function App() {
   const [selectedAgent, setSelectedAgent] = useState(0)
   const [tab, setTab] = useState<Tab>('agents')
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settings, setSettings] = useState<LlmSettings>(() => {
+    try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem('dadras-llm-settings') || '{}'), apiKey: '' } } catch { return defaultSettings }
+  })
+  const [connection, setConnection] = useState<ConnectionState>('untested')
+  const [connectionMessage, setConnectionMessage] = useState('اتصال مدل هنوز بررسی نشده است.')
+  const [agentResults, setAgentResults] = useState<Record<string, AgentResponse>>({})
+  const [agentErrors, setAgentErrors] = useState<Record<string, string>>({})
   const [mobileMenu, setMobileMenu] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -25,11 +36,25 @@ function App() {
 
   useEffect(() => {
     if (!running || paused) return
-    const timeout = window.setTimeout(() => {
-      setSelectedAgent(activeStep)
-      setActiveStep((value) => value + 1)
-    }, agents[activeStep].duration)
-    return () => window.clearTimeout(timeout)
+    const agent = agents[activeStep]
+    let cancelled = false
+    setSelectedAgent(activeStep)
+    setAgentErrors((current) => { const next = { ...current }; delete next[agent.id]; return next })
+    const previousOutputs = agents.slice(0, activeStep).flatMap((item) => agentResults[item.id] ? [{ title: item.title, answer: agentResults[item.id].answer }] : [])
+    fetch('/api/llm/agent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings, agent: { title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
+    }).then(async (response) => {
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'پاسخی از مدل دریافت نشد.')
+      if (!cancelled) {
+        setAgentResults((current) => ({ ...current, [agent.id]: body }))
+        setActiveStep((value) => value + 1)
+      }
+    }).catch((error) => {
+      if (!cancelled) { setAgentErrors((current) => ({ ...current, [agent.id]: error.message })); setPaused(true) }
+    })
+    return () => { cancelled = true }
   }, [activeStep, paused, running])
 
   useEffect(() => {
@@ -42,6 +67,8 @@ function App() {
     setPaused(false)
     setSelectedAgent(0)
     setTab('agents')
+    setAgentResults({})
+    setAgentErrors({})
     setScreen('workspace')
     setUploadOpen(false)
   }
@@ -51,9 +78,31 @@ function App() {
     setPaused(false)
     setSelectedAgent(0)
     setTab('agents')
+    setAgentResults({})
+    setAgentErrors({})
   }
 
-  const statusFor = (index: number) => index < activeStep ? 'done' : index === activeStep && !finished ? 'running' : 'waiting'
+  const statusFor = (index: number) => agentErrors[agents[index].id] ? 'error' : index < activeStep ? 'done' : index === activeStep && !finished ? 'running' : 'waiting'
+
+  const saveSettings = (next: LlmSettings) => {
+    setSettings(next)
+    const { apiKey: _secret, ...safe } = next
+    localStorage.setItem('dadras-llm-settings', JSON.stringify(safe))
+    setConnection('untested')
+    setConnectionMessage('تنظیمات تغییر کرد؛ اتصال را دوباره آزمایش کنید.')
+  }
+
+  const testConnection = async (candidate: LlmSettings) => {
+    setConnection('testing'); setConnectionMessage('در حال تماس با مدل…')
+    try {
+      const response = await fetch('/api/llm/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(candidate) })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'آزمایش اتصال ناموفق بود.')
+      setConnection('connected'); setConnectionMessage(`${body.answer} · ${body.elapsedMs}ms`); return true
+    } catch (error) {
+      setConnection('failed'); setConnectionMessage(error instanceof Error ? error.message : 'خطای اتصال'); return false
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -69,6 +118,7 @@ function App() {
           <button onClick={() => setMobileMenu(false)}>راهنما</button>
         </nav>
         <div className="header-tools">
+          <button className={`llm-chip ${connection}`} onClick={() => setSettingsOpen(true)}><span/><b>{settings.model}</b><Settings2 size={16}/></button>
           <button className="icon-btn" aria-label="جستجو"><Search size={19}/></button>
           <div className="user-chip"><span>ن ک</span><div><b>ناهید کریمی</b><small>قاضی شعبه ۱۲</small></div><ChevronDown size={15}/></div>
           <button className="menu-btn" onClick={() => setMobileMenu(!mobileMenu)} aria-label="باز کردن منو">{mobileMenu ? <X/> : <Menu/>}</button>
@@ -78,10 +128,11 @@ function App() {
       <div className="notice"><Shield size={16}/><span><b>محیط نمایشی و آموزشی</b> — خروجی سامانه صرفاً پیشنهادی است و اعتبار قضایی ندارد. تصمیم نهایی باید توسط قاضی انسانی تأیید شود.</span></div>
 
       {screen === 'home' ? <Home onStart={startCase} onUpload={() => setUploadOpen(true)} /> : (
-        <Workspace caseData={caseData} activeStep={activeStep} progress={progress} paused={paused} finished={finished} selectedAgent={selectedAgent} tab={tab} setTab={setTab} setSelectedAgent={setSelectedAgent} statusFor={statusFor} onStart={() => startCase()} onPause={() => setPaused(!paused)} onReset={reset}/>
+        <Workspace caseData={caseData} activeStep={activeStep} progress={progress} paused={paused} finished={finished} selectedAgent={selectedAgent} tab={tab} setTab={setTab} setSelectedAgent={setSelectedAgent} statusFor={statusFor} agentResults={agentResults} agentErrors={agentErrors} model={settings.model} onStart={() => startCase()} onPause={() => setPaused(!paused)} onReset={reset} onSettings={() => setSettingsOpen(true)}/>
       )}
 
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onPick={() => fileRef.current?.click()} onStart={() => startCase()} fileRef={fileRef}/>} 
+      {settingsOpen && <SettingsModal initial={settings} connection={connection} message={connectionMessage} onTest={testConnection} onSave={saveSettings} onClose={() => setSettingsOpen(false)}/>}
     </div>
   )
 }
@@ -120,12 +171,14 @@ function Home({ onStart, onUpload }: { onStart: (c: CaseData) => void; onUpload:
   </main>
 }
 
-function Workspace({ caseData, activeStep, progress, paused, finished, selectedAgent, tab, setTab, setSelectedAgent, statusFor, onStart, onPause, onReset }: any) {
+function Workspace({ caseData, activeStep, progress, paused, finished, selectedAgent, tab, setTab, setSelectedAgent, statusFor, agentResults, agentErrors, model, onStart, onPause, onReset, onSettings }: any) {
   const selected = agents[selectedAgent]
+  const selectedResult: AgentResponse | undefined = agentResults[selected.id]
+  const selectedError: string | undefined = agentErrors[selected.id]
   return <main className="workspace">
     <div className="workspace-head">
       <div><span className="crumb">پرونده‌ها / {caseData.id}</span><h1>{caseData.title}</h1><p>{caseData.branch} · ثبت {caseData.filedAt}</p></div>
-      <div className="workspace-actions">{activeStep < 0 ? <button className="primary" onClick={onStart}><Play size={17}/> آغاز تحلیل</button> : <><button className="secondary compact" onClick={onPause} disabled={finished}>{paused ? <Play/> : <Pause/>}{paused ? 'ادامه' : 'توقف'}</button><button className="icon-btn bordered" onClick={onReset} title="شروع دوباره"><RotateCcw size={18}/></button></>}</div>
+      <div className="workspace-actions"><button className="model-button" onClick={onSettings}><Wifi/><span><small>مدل فعال</small><b>{model}</b></span></button>{activeStep < 0 ? <button className="primary" onClick={onStart}><Play size={17}/> آغاز تحلیل واقعی</button> : <><button className="secondary compact" onClick={onPause} disabled={finished}>{paused ? <Play/> : <Pause/>}{paused ? (selectedError ? 'تلاش دوباره' : 'ادامه') : 'توقف'}</button><button className="icon-btn bordered" onClick={onReset} title="شروع دوباره"><RotateCcw size={18}/></button></>}</div>
     </div>
 
     <div className="progress-panel">
@@ -146,30 +199,52 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
       <section className="main-panel">
         <div className="tabs" role="tablist"><button className={tab === 'agents' ? 'active' : ''} onClick={() => setTab('agents')}>گردش عامل‌ها</button><button className={tab === 'verdict' ? 'active' : ''} onClick={() => setTab('verdict')}>رأی پیشنهادی {finished && <span>آماده</span>}</button><button className={tab === 'citations' ? 'active' : ''} onClick={() => setTab('citations')}>استنادات قانونی</button></div>
         {tab === 'agents' && <div className="agents-layout">
-          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : <Clock3/>}</span></button> })}</div>
+          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
           <div className="agent-detail">
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
-            {statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، گزارش مستدل این بخش نمایش داده می‌شود.</p></div> : <><div className="reason-box"><span>نتیجه و دلیل</span><p>{selected.result}</p></div><div className="evidence"><span>شواهد و خروجی‌ها</span>{selected.evidence.map((e: string) => <div key={e}><CheckCircle2/>{e}</div>)}</div><div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این نتیجه از داده‌های ساختگی پرونده و پایگاه دانش نمونه تولید شده و برای تصمیم قضایی واقعی کافی نیست.</p></div></>}
+            {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>شرح پرونده، وظیفه این عامل و خروجی مراحل پیشین برای مدل ارسال شد.</p></div> : <><div className="response-meta"><span><Sparkles/> پاسخ مستقیم مدل</span><span>{selectedResult?.model} · {selectedResult ? `${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className="reason-box llm-answer"><p>{selectedResult?.answer || selected.result}</p></div><div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div></>}
           </div>
         </div>}
-        {tab === 'verdict' && <Verdict ready={finished}/>} 
+        {tab === 'verdict' && <Verdict ready={finished} modelAnswer={agentResults.synthesis?.answer}/>}
         {tab === 'citations' && <Citations/>}
       </section>
     </div>
   </main>
 }
 
-function Verdict({ ready }: { ready: boolean }) {
+function Verdict({ ready, modelAnswer }: { ready: boolean; modelAnswer?: string }) {
   if (!ready) return <div className="locked"><Gavel/><h2>پیش‌نویس هنوز آماده نیست</h2><p>برای مشاهده رأی پیشنهادی، اجازه دهید همه عامل‌ها و مرحله صحت‌سنجی تکمیل شوند.</p></div>
   return <div className="verdict">
     <div className="verdict-banner"><ShieldCheck/><div><b>پیش‌نویس با موفقیت صحت‌سنجی شد</b><span>۴ استناد بررسی شد · ۱ مورد نیازمند توجه قاضی</span></div></div>
-    <div className="document"><div className="document-kicker">به نام خدا · رأی پیشنهادی غیررسمی</div><h2>دادنامه پیشنهادی</h2><p>در خصوص دعوای شرکت سازه‌گستر به طرفیت شرکت نقش‌آور به خواسته مطالبه وجه قرارداد پیمانکاری، با توجه به اصل قرارداد، صورت‌وضعیت نهایی و نظریه کارشناسی نمونه، اصل اشتغال ذمه خوانده احراز می‌شود.</p><h3>منطوق پیشنهادی</h3><p>خوانده به پرداخت مبلغ <b>۷۲۰ میلیون تومان</b> بابت اصل خواسته و هزینه دادرسی متناسب در حق خواهان محکوم شود. بخش مازاد خواسته، با لحاظ خسارت تأخیر مستندشده، قابل پذیرش تشخیص داده نمی‌شود.</p><div className="judge-note"><AlertTriangle/><p><b>نقطه تصمیم انسانی:</b> نحوه محاسبه خسارت تأخیر و اصالت صورت‌جلسه تحویل باید پیش از امضای رأی توسط قاضی بررسی شود.</p></div></div>
+    <div className="document"><div className="document-kicker">به نام خدا · جمع‌بندی تولیدشده توسط مدل</div><h2>دادنامه پیشنهادی</h2><p className="generated-verdict">{modelAnswer || 'جمع‌بندی مدل در دسترس نیست.'}</p><div className="judge-note"><AlertTriangle/><p><b>نقطه تصمیم انسانی:</b> تمام محاسبات، اصالت اسناد و استنادهای حقوقی باید پیش از هر استفاده توسط قاضی بررسی شوند.</p></div></div>
     <div className="verdict-actions"><button className="secondary">دریافت گزارش کامل</button><button className="primary">ارسال برای بازبینی انسانی <ArrowLeft/></button></div>
   </div>
 }
 
 function Citations() {
   return <div className="citations"><div className="citation-summary"><BookOpenCheck/><div><b>اعتبارسنجی پایگاه دانش نمونه</b><span>آخرین بررسی نمایشی: امروز، ساعت ۱۰:۴۲</span></div><strong>۳ / ۳</strong></div>{legalCitations.map((c) => <article key={c.code}><div><h3>{c.code}</h3><p>{c.text}</p></div><div className="citation-tags"><span><CheckCircle2/>{c.status}</span><span className={c.relevance === 'نیازمند بررسی' ? 'review' : ''}>{c.relevance}</span></div></article>)}</div>
+}
+
+function SettingsModal({ initial, connection, message, onTest, onSave, onClose }: { initial: LlmSettings; connection: ConnectionState; message: string; onTest: (value: LlmSettings) => Promise<boolean>; onSave: (value: LlmSettings) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState<LlmSettings>(initial)
+  const [showKey, setShowKey] = useState(false)
+  const update = <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => setDraft((current) => ({ ...current, [key]: value }))
+  const defaults = draft.provider === 'ollama' ? { url: 'http://127.0.0.1:11434', model: 'gemma3:4b' } : { url: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' }
+  const switchProvider = (provider: LlmSettings['provider']) => setDraft((current) => ({ ...current, provider, baseUrl: provider === 'ollama' ? 'http://127.0.0.1:11434' : 'https://api.openai.com/v1', model: provider === 'ollama' ? 'gemma3:4b' : 'gpt-4.1-mini' }))
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <button className="modal-close" onClick={onClose}><X/></button>
+    <div className="settings-heading"><span className="modal-icon"><Settings2/></span><div><small>درگاه استدلال سامانه</small><h2 id="settings-title">تنظیمات مدل زبانی</h2></div></div>
+    <p className="settings-intro">هر عامل یک درخواست مستقل به این مدل می‌فرستد. کلید API فقط در حافظه این صفحه می‌ماند و ذخیره نمی‌شود.</p>
+    <div className="provider-switch"><button className={draft.provider === 'ollama' ? 'active' : ''} onClick={() => switchProvider('ollama')}><span className="provider-mark local">L</span><span><b>مدل محلی</b><small>Ollama روی رایانه شما</small></span></button><button className={draft.provider === 'openai-compatible' ? 'active' : ''} onClick={() => switchProvider('openai-compatible')}><span className="provider-mark api">A</span><span><b>API سازگار</b><small>OpenAI یا سرویس مشابه</small></span></button></div>
+    <div className="settings-fields">
+      <label><span>نشانی سرویس</span><input dir="ltr" value={draft.baseUrl} placeholder={defaults.url} onChange={(e) => update('baseUrl', e.target.value)}/><small>{draft.provider === 'ollama' ? 'نشانی پیش‌فرض Ollama؛ بدون / در انتها' : 'نشانی باید به مسیر نسخه API مانند /v1 ختم شود'}</small></label>
+      <label><span>نام مدل</span><input dir="ltr" value={draft.model} placeholder={defaults.model} onChange={(e) => update('model', e.target.value)}/><small>نام باید دقیقاً با مدل نصب‌شده یا شناسه API برابر باشد.</small></label>
+      {draft.provider === 'openai-compatible' && <label><span>کلید API</span><div className="secret-input"><input dir="ltr" type={showKey ? 'text' : 'password'} value={draft.apiKey} onChange={(e) => update('apiKey', e.target.value)} placeholder="sk-…"/><button onClick={() => setShowKey(!showKey)} aria-label="نمایش کلید">{showKey ? <EyeOff/> : <Eye/>}</button></div><small>این مقدار در localStorage نوشته نمی‌شود.</small></label>}
+      <label><span>دمای پاسخ <b>{draft.temperature.toFixed(1)}</b></span><input type="range" min="0" max="1" step="0.1" value={draft.temperature} onChange={(e) => update('temperature', Number(e.target.value))}/><small>برای تحلیل حقوقی، مقدار پایین‌تر پاسخ‌های پایدارتر می‌دهد.</small></label>
+    </div>
+    <div className={`connection-result ${connection}`}><span>{connection === 'testing' ? <span className="spinner"/> : connection === 'connected' ? <CheckCircle2/> : connection === 'failed' ? <AlertCircle/> : <Wifi/>}</span><p>{message}</p></div>
+    <div className="settings-actions"><button className="secondary" disabled={connection === 'testing'} onClick={() => onTest(draft)}>{connection === 'testing' ? 'در حال آزمایش…' : 'آزمایش اتصال'}</button><button className="primary" onClick={() => { onSave(draft); onClose() }}>ذخیره تنظیمات <Check/></button></div>
+  </div></div>
 }
 
 function UploadModal({ onClose, onPick, onStart, fileRef }: any) {

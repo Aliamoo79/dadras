@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n web,server -c cyan,green \"vite\" \"node --watch server/index.mjs\"",
+    "dev:web": "vite",
+    "dev:server": "node --watch server/index.mjs",
     "build": "tsc -b && vite build",
+    "start": "node server/index.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,10 +17,12 @@
     "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "lucide-react": "latest",
+    "express": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@types/react-dom": "latest",
+    "concurrently": "latest"
   }
 }

@@ -11,6 +11,23 @@ export interface Agent {
   duration: number
   result: string
   evidence: string[]
+  instruction: string
+}
+
+export type LlmProvider = 'ollama' | 'openai-compatible'
+
+export interface LlmSettings {
+  provider: LlmProvider
+  baseUrl: string
+  model: string
+  apiKey: string
+  temperature: number
+}
+
+export interface AgentResponse {
+  answer: string
+  model: string
+  elapsedMs: number
 }
 
 export interface CaseData {
