@@ -14,7 +14,24 @@ Internet → Nginx :80/:443 → Dadras :8787 → Ollama :11434
 
 Dadras and Ollama listen only on the VPS loopback interface. Do not expose port `11434` publicly.
 
-### 1. Install Node.js, Git, and Nginx
+### Quick first-time installation
+
+On a fresh Ubuntu or Debian VPS, clone the repository and run the included installer:
+
+```bash
+git clone https://github.com/Aliamoo79/dadras.git /opt/dadras
+cd /opt/dadras
+chmod +x install.sh
+./install.sh
+```
+
+The installer adds the system prerequisites, installs system-wide Node.js 22 when
+the existing Node version is incompatible, enables Nginx, builds Dadras, and starts
+it on `127.0.0.1:8787`. It can safely be run again.
+
+Continue with the Ollama and Nginx configuration below after it completes.
+
+### 1. Manual installation of Node.js, Git, and Nginx
 
 Install Node.js `20.19+` or `22.12+` using your preferred Ubuntu method. Node.js 18 is not supported by the Vite/Rolldown build toolchain. Then confirm:
 
