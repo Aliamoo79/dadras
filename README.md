@@ -26,10 +26,18 @@ chmod +x install.sh
 ```
 
 The installer adds the system prerequisites, installs system-wide Node.js 22 when
-the existing Node version is incompatible, enables Nginx, builds Dadras, and starts
-it on `127.0.0.1:8787`. It can safely be run again.
+the existing Node version is incompatible, builds Dadras, configures Nginx, opens
+Nginx in UFW when the firewall is active, and starts the application. You can then
+open `http://YOUR_VPS_IP` in a browser. The installer can safely be run again.
 
-Continue with the Ollama and Nginx configuration below after it completes.
+To configure a domain during installation, point its DNS record to the VPS and run:
+
+```bash
+DOMAIN=dadras.example.com ./install.sh
+```
+
+Continue with the Ollama configuration below after it completes. Add HTTPS with
+Certbot before entering API keys into the application.
 
 ### 1. Manual installation of Node.js, Git, and Nginx
 

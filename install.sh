@@ -3,6 +3,12 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 NODE_MAJOR=22
+SERVER_NAME="${DOMAIN:-_}"
+
+if [[ ! "$SERVER_NAME" =~ ^([A-Za-z0-9.-]+|_)$ ]]; then
+  echo "Error: DOMAIN must be a hostname or IPv4 address." >&2
+  exit 1
+fi
 
 if [[ ! -f /etc/os-release ]]; then
   echo "Error: this installer supports Ubuntu and Debian VPS hosts." >&2
@@ -61,6 +67,38 @@ echo "Using Node.js $(node --version) and npm $(npm --version)."
 chmod +x "$PROJECT_ROOT/restart.sh"
 "$PROJECT_ROOT/restart.sh"
 
+echo "Configuring Nginx..."
+nginx_config="$(mktemp)"
+trap 'rm -f -- "${nginx_config:-}"' EXIT
+sed "s/dadras\.example\.com/$SERVER_NAME/" \
+  "$PROJECT_ROOT/deploy/dadras.nginx.conf" > "$nginx_config"
+
+if [[ "$SERVER_NAME" == "_" ]]; then
+  sed -i \
+    -e 's/listen 80;/listen 80 default_server;/' \
+    -e 's/listen \[::\]:80;/listen [::]:80 default_server;/' \
+    "$nginx_config"
+  "${SUDO[@]}" rm -f -- /etc/nginx/sites-enabled/default
+fi
+
+"${SUDO[@]}" install -m 0644 "$nginx_config" /etc/nginx/sites-available/dadras
+"${SUDO[@]}" ln -sfn /etc/nginx/sites-available/dadras /etc/nginx/sites-enabled/dadras
+"${SUDO[@]}" nginx -t
+"${SUDO[@]}" systemctl enable --now nginx
+"${SUDO[@]}" systemctl reload nginx
+rm -f -- "$nginx_config"
+trap - EXIT
+
+if command -v ufw >/dev/null 2>&1 && "${SUDO[@]}" ufw status | grep -q '^Status: active'; then
+  "${SUDO[@]}" ufw allow 'Nginx Full'
+fi
+
 echo
 echo "First-time installation completed."
-echo "Next: configure Nginx using deploy/dadras.nginx.conf (see README.md)."
+if [[ "$SERVER_NAME" == "_" ]]; then
+  echo "Open http://YOUR_VPS_IP in your browser."
+  echo "For a domain, rerun with: DOMAIN=dadras.example.com ./install.sh"
+else
+  echo "Open http://$SERVER_NAME in your browser."
+  echo "Point the domain's DNS record to this VPS if it is not already configured."
+fi
