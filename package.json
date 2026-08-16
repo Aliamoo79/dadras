@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:server": "node --watch server/index.mjs",
     "build": "tsc -b && vite build",
+    "test": "node --test server/*.test.mjs",
     "start": "node server/index.mjs",
     "preview": "vite preview"
   },

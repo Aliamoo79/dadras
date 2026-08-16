@@ -2,6 +2,7 @@ import express from 'express'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { buildAgentMessages } from './prompts.mjs'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -220,9 +221,7 @@ app.post('/api/llm/agent', async (req, res) => {
   try {
     const { settings, agent, caseData, previousOutputs = [] } = req.body
     if (!agent?.title || !caseData?.summary) return res.status(400).json({ error: 'اطلاعات عامل یا پرونده ناقص است.' })
-    const system = `شما عامل «${agent.title}» در یک دموی آموزشی سامانه قضایی ایران هستید. پاسخ را فقط به فارسی، روشن و حرفه‌ای بنویسید. این داده‌ها ساختگی‌اند. رأی قطعی یا مشاوره حقوقی واقعی ندهید. استدلال، عدم قطعیت و موارد نیازمند بررسی انسان را آشکار کنید. پاسخ بین ۱۲۰ تا ۲۲۰ واژه باشد و با سه عنوان «نتیجه»، «استدلال» و «نیازمند بررسی قاضی» ساختاربندی شود.`
-    const previous = previousOutputs.length ? previousOutputs.map((item) => `${item.title}: ${item.answer}`).join('\n\n') : 'این نخستین مرحله است.'
-    const user = `پرونده:\nشناسه: ${caseData.id}\nعنوان: ${caseData.title}\nنوع: ${caseData.category}\nطرفین: ${caseData.parties}\nمبلغ: ${caseData.amount}\nشرح: ${caseData.narrative}\n\nوظیفه این عامل:\n${agent.instruction}\n\nخروجی مراحل پیشین:\n${previous}`
+    const messages = buildAgentMessages(agent, caseData, previousOutputs)
     res.status(200).set({
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -233,7 +232,7 @@ app.post('/api/llm/agent', async (req, res) => {
     const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
     const result = await streamModel(
       settings,
-      [{ role: 'system', content: system }, { role: 'user', content: user }],
+      messages,
       (delta) => send({ type: 'delta', delta }),
       { requestId: req.requestId, agent: agent.title, caseId: caseData.id },
       abortController.signal,
