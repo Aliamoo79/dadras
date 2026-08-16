@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
+const host = String(process.env.HOST || '127.0.0.1')
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MAX_LOGS = 500
 const logs = []
@@ -172,4 +173,4 @@ app.use('/api', (error, req, res, _next) => {
 app.use(express.static(path.join(root, 'dist')))
 app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html')))
 
-app.listen(port, '127.0.0.1', () => console.log(`Dadras server: http://127.0.0.1:${port}`))
+app.listen(port, host, () => console.log(`Dadras server listening on http://${host}:${port}`))

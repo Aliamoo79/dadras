@@ -142,6 +142,22 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies `/api` to the local gateway at `http://127.0.0.1:8787`.
 
+## Direct IP and port access without Nginx
+
+The server uses `127.0.0.1:8787` by default. To listen on every network interface and access Dadras directly, run:
+
+```bash
+HOST=0.0.0.0 PORT=8787 ./restart.sh
+```
+
+Then open `http://YOUR_SERVER_IP:8787`. If UFW is active, allow only this application port:
+
+```bash
+sudo ufw allow 8787/tcp
+```
+
+Do not expose Ollama port `11434`. Direct public access has no authentication in this demo, including its diagnostics page, so restrict port `8787` to trusted source IPs when possible.
+
 ## Current workflow
 
 - Ten sequential, specialized model requests across five judicial layers

@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$PROJECT_ROOT/.dadras.pid"
 LOG_FILE="$PROJECT_ROOT/dadras.log"
 PORT="${PORT:-8787}"
+HOST="${HOST:-127.0.0.1}"
 
 cd "$PROJECT_ROOT"
 
@@ -58,8 +59,8 @@ if [[ -f "$PID_FILE" ]]; then
   rm -f -- "$PID_FILE"
 fi
 
-echo "Starting Dadras on 127.0.0.1:$PORT..."
-nohup env NODE_ENV=production PORT="$PORT" node server/index.mjs >>"$LOG_FILE" 2>&1 &
+echo "Starting Dadras on $HOST:$PORT..."
+nohup env NODE_ENV=production HOST="$HOST" PORT="$PORT" node server/index.mjs >>"$LOG_FILE" 2>&1 &
 dadras_pid=$!
 printf '%s' "$dadras_pid" > "$PID_FILE"
 
@@ -76,6 +77,10 @@ if command -v curl >/dev/null 2>&1; then
 fi
 
 echo "Dadras restarted successfully (PID $dadras_pid)."
-echo "Local service: http://127.0.0.1:$PORT"
+echo "Listening address: http://$HOST:$PORT"
 echo "Log file: $LOG_FILE"
-echo "Expose it publicly through Nginx; do not expose the Ollama port."
+if [[ "$HOST" == "0.0.0.0" || "$HOST" == "::" ]]; then
+  echo "Public access enabled. Open only TCP port $PORT in the firewall; do not expose the Ollama port."
+else
+  echo "Loopback access only. Set HOST=0.0.0.0 for direct IP-and-port access."
+fi
