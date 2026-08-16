@@ -22,3 +22,10 @@ test('returns exact PDF page and article metadata', async () => {
   assert.equal(constitution[0]?.citation, 'اصل هفتاد و پنجم')
   assert.equal(constitution[0]?.source, '4354_236.pdf')
 })
+
+test('routes private construction disputes away from constitutional material', async () => {
+  const results = await searchKnowledge('مطالبه وجه قرارداد پیمانکاری خصوصی صورت وضعیت نقص و تهاتر', 6)
+  assert.ok(results.some((result) => result.source === 'private-construction-contracts.md'))
+  assert.ok(results.some((result) => result.source === 'construction-claims-evidence-and-procedure.md'))
+  assert.notEqual(results[0]?.source, '4354_236.pdf')
+})

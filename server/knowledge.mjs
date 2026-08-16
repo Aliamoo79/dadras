@@ -105,11 +105,15 @@ export async function searchKnowledge(query, limit = 5) {
     for (const [index, frequency] of matches) scores.set(index, (scores.get(index) || 0) + inverseFrequency * (1 + Math.log(frequency)))
   }
   const normalizedQuery = normalize(query)
+  const privateContractQuery = /پیمانکار|کارفرما|قرارداد|صورت وضعیت|تحویل موقت|رفع نقص|وجه التزام|اجرت المثل/.test(normalizedQuery)
+  const constitutionalQuery = /قانون اساسی|شورای نگهبان|اصل [^ ]+|مجلس شورای اسلامی|بودجه عمومی/.test(normalizedQuery)
   return [...scores.entries()].map(([index, score]) => {
     const chunk = chunks[index]
     const phraseBonus = normalize(chunk.text).includes(normalizedQuery) ? 8 : 0
     const citationBonus = chunk.citation && normalizedQuery.includes(normalize(chunk.citation)) ? 25 : 0
     const primarySourceBonus = chunk.page ? 2 : 0
-    return { ...chunk, score: Number((score + phraseBonus + citationBonus + primarySourceBonus).toFixed(3)) }
+    const focusedContractBonus = privateContractQuery && /private-construction|construction-claims|standard-public-works|قانون-مدنی/.test(chunk.source) ? 12 : 0
+    const constitutionPenalty = privateContractQuery && !constitutionalQuery && chunk.source === '4354_236.pdf' ? 0.2 : 1
+    return { ...chunk, score: Number(((score + phraseBonus + citationBonus + primarySourceBonus + focusedContractBonus) * constitutionPenalty).toFixed(3)) }
   }).sort((a, b) => b.score - a.score || a.text.length - b.text.length).slice(0, Math.max(1, Math.min(limit, 10)))
 }
