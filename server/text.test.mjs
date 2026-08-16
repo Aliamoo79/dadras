@@ -12,14 +12,14 @@ test('normalizes Arabic letter variants to Persian forms', () => {
   assert.equal(sanitizeModelText('يك كتاب'), 'یک کتاب')
 })
 
-test('repairs common joined Persian legal compounds and suffixes', () => {
+test('repairs joined Persian legal compounds using ordinary spaces', () => {
   assert.equal(
     sanitizeModelText('صورتوضعیتهای تفصیلی، پیشپرداخت و قراردادها لازمالاتباع میباشد.'),
-    'صورت‌وضعیت‌های تفصیلی، پیش‌پرداخت و قرارداد‌ها لازم‌الاتباع می‌باشد.',
+    'صورت وضعیت های تفصیلی، پیش پرداخت و قرارداد ها لازم الاتباع می باشد.',
   )
   assert.equal(
     sanitizeModelText('دستهبندی اسناد، اولویت بندی، تصمیمگیری و قانونگذاری'),
-    'دسته‌بندی اسناد، اولویت‌بندی، تصمیم‌گیری و قانون‌گذاری',
+    'دسته بندی اسناد، اولویت بندی، تصمیم گیری و قانون گذاری',
   )
-  assert.equal(sanitizeModelText('**نتیجه تخصصی این مرحله**'), '**جمع‌بندی**')
+  assert.equal(sanitizeModelText('**نتیجه تخصصی این مرحله**'), '**نتیجه**')
 })

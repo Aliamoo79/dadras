@@ -14,7 +14,8 @@ test('places the current specialized task after prior context', () => {
   assert.ok(prompt.indexOf('<current_agent_task>') > prompt.indexOf('<prior_context>'))
   assert.match(prompt, /وظیفه انحصاری: استدلال هر دو طرف را مقایسه کن/)
   assert.match(messages[0].content, /گزارش عمومی پرونده یا پاسخ عامل قبلی را تکرار نکنید/)
-  assert.match(messages[0].content, /«جمع‌بندی»/)
+  assert.match(messages[0].content, /«نتیجه»/)
+  assert.match(messages[0].content, /از نیم فاصله استفاده نکنید/)
   assert.match(messages[0].content, /عبارت «نتیجه تخصصی این مرحله» را ننویسید/)
 })
 

@@ -2,7 +2,7 @@ const allowedCharacter = /[\p{Script=Arabic}\p{Script=Latin}\p{N}\p{P}\p{S}\s]/u
 
 export function normalizePersianTypography(value) {
   return String(value || '')
-    .replace(/نتیجه تخصصی این مرحله/gu, 'جمع‌بندی')
+    .replace(/نتیجه تخصصی این مرحله/gu, 'نتیجه')
     .replace(/صورت\s*[-‌]?\s*وضعیت\s*های(?=$|[^\p{Script=Arabic}])/gu, 'صورت‌وضعیت‌های')
     .replace(/صورت\s*[-‌]?\s*وضعیت\s*ها(?=$|[^\p{Script=Arabic}])/gu, 'صورت‌وضعیت‌ها')
     .replace(/صورت\s*[-‌]?\s*وضعیت/gu, 'صورت‌وضعیت')
@@ -29,5 +29,5 @@ export function sanitizeModelText(value) {
     .replace(/[يى]/g, 'ی')
     .replace(/ك/g, 'ک')
     .replace(/\uFFFD/g, '')
-  return normalizePersianTypography(clean)
+  return normalizePersianTypography(clean).replace(/\u200c/g, ' ')
 }

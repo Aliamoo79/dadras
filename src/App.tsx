@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Bug, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RefreshCw, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Trash2, Upload, Wifi, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Bug, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RefreshCw, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Trash2, Upload, Users, Wifi, X } from 'lucide-react'
 import { agents, sampleCases } from './data'
 import type { AgentResponse, CaseData, KnowledgeDocument, LlmSettings, LogEntry, RagReference } from './types'
 
@@ -337,7 +337,16 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
       <section className="main-panel">
         <div className="tabs" role="tablist"><button className={tab === 'agents' ? 'active' : ''} onClick={() => setTab('agents')}>گردش عامل‌ها</button><button className={tab === 'verdict' ? 'active' : ''} onClick={() => setTab('verdict')}>رأی پیشنهادی {finished && <span>آماده</span>}</button><button className={tab === 'citations' ? 'active' : ''} onClick={() => setTab('citations')}>استنادات قانونی</button></div>
         {tab === 'agents' && <div className="agents-layout">
-          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
+          <div className="agent-list">{agents.map((agent, index) => {
+            if (agent.parallelGroup && agents.findIndex((item) => item.parallelGroup === agent.parallelGroup) !== index) return null
+            const groupIndexes = agent.parallelGroup ? agents.map((item, itemIndex) => item.parallelGroup === agent.parallelGroup ? itemIndex : -1).filter((itemIndex) => itemIndex >= 0) : [index]
+            const groupStates = groupIndexes.map(statusFor)
+            const state = groupStates.includes('error') ? 'error' : groupStates.includes('running') ? 'running' : groupStates.every((item) => item === 'done') ? 'done' : 'waiting'
+            const isAdvocates = agent.parallelGroup === 'advocates'
+            const Icon = isAdvocates ? Users : agent.icon
+            const selectedGroup = selected.parallelGroup && selected.parallelGroup === agent.parallelGroup
+            return <button key={agent.parallelGroup || agent.id} className={`agent-row ${state} ${selectedAgent === index || selectedGroup ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{isAdvocates ? 'وکلای طرفین' : agent.title}</b><small>{isAdvocates ? 'استدلال · دو دفاع مستقل و هم زمان' : `${agent.layer} · ${agent.subtitle}`}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button>
+          })}</div>
           <div className="agent-detail">
             {selected.parallelGroup === 'advocates' ? <AdvocateComparison agentResults={agentResults} agentErrors={agentErrors} statusFor={statusFor} model={model}/> : <>
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
