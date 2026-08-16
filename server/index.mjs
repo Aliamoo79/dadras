@@ -242,6 +242,46 @@ app.post('/api/llm/test', async (req, res) => {
   }
 })
 
+app.post('/api/llm/agents', async (req, res) => {
+  const abortController = new AbortController()
+  res.on('close', () => { if (!res.writableEnded) abortController.abort() })
+  const { settings, agents: requestedAgents, caseData, previousOutputs = [] } = req.body
+  if (!Array.isArray(requestedAgents) || requestedAgents.length < 2 || !caseData?.summary) {
+    return res.status(400).json({ error: 'اطلاعات عامل های هم زمان یا پرونده ناقص است.' })
+  }
+  res.status(200).set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  res.flushHeaders()
+  const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
+  const groupId = crypto.randomUUID()
+  addLog('info', 'parallel_agents_started', { requestId: req.requestId, groupId, agents: requestedAgents.map((agent) => agent.title) })
+
+  const outcomes = await Promise.allSettled(requestedAgents.map(async (agent) => {
+    try {
+      const messages = buildAgentMessages(agent, caseData, previousOutputs, [])
+      let firstTokenLogged = false
+      const result = await streamModel(settings, messages, (delta) => {
+        if (!firstTokenLogged) {
+          firstTokenLogged = true
+          addLog('info', 'parallel_agent_first_token', { requestId: req.requestId, groupId, agent: agent.title })
+        }
+        send({ type: 'delta', agentId: agent.id, delta })
+      }, { requestId: req.requestId, groupId, agent: agent.title, caseId: caseData.id }, abortController.signal)
+      send({ type: 'done', agentId: agent.id, answer: result.answer, model: result.model, elapsedMs: result.elapsedMs, references: [] })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'خطای ناشناخته مدل'
+      send({ type: 'agent_error', agentId: agent.id, error: message })
+      throw error
+    }
+  }))
+  send({ type: 'group_done', failed: outcomes.filter((outcome) => outcome.status === 'rejected').length })
+  res.end()
+})
+
 app.post('/api/llm/agent', async (req, res) => {
   const abortController = new AbortController()
   res.on('close', () => { if (!res.writableEnded) abortController.abort() })

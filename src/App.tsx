@@ -47,6 +47,36 @@ function App() {
 
     void (async () => {
       try {
+        const runParallelAgents = async () => {
+          const response = await fetch('/api/llm/agents', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controllers[0].signal,
+            body: JSON.stringify({ settings, agents: activeAgents.map(({ id, title, instruction }) => ({ id, title, instruction })), caseData, previousOutputs }),
+          })
+          if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'پاسخی از مدل دریافت نشد.') }
+          if (!response.body) throw new Error('جریان پاسخ مدل در مرورگر در دسترس نیست.')
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          const completed = new Set<string>()
+          let buffer = ''
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const blocks = buffer.split(/\r?\n\r?\n/)
+            buffer = blocks.pop() || ''
+            for (const block of blocks) {
+              const line = block.split(/\r?\n/).find((item) => item.startsWith('data:'))
+              if (!line) continue
+              const event = JSON.parse(line.slice(5).trim())
+              if (!event.agentId) continue
+              if (event.type === 'delta' && !cancelled) setAgentResults((current) => ({ ...current, [event.agentId]: { ...(current[event.agentId] || { model: settings.model, elapsedMs: 0 }), answer: `${current[event.agentId]?.answer || ''}${event.delta}` } }))
+              else if (event.type === 'done' && !cancelled) { completed.add(event.agentId); setAgentResults((current) => ({ ...current, [event.agentId]: { answer: event.answer || current[event.agentId]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0, references: event.references || [] } })) }
+              else if (event.type === 'agent_error' && !cancelled) setAgentErrors((current) => ({ ...current, [event.agentId]: event.error || 'خطای ناشناخته جریان' }))
+            }
+          }
+          if (completed.size !== activeAgents.length) throw new Error('یک یا چند پاسخ هم زمان کامل نشد.')
+        }
+
         const runAgent = async (currentAgent: typeof agent, signal: AbortSignal) => {
           try {
             const response = await fetch('/api/llm/agent', {
@@ -80,7 +110,9 @@ function App() {
             throw error
           }
         }
-        const outcomes = await Promise.allSettled(activeAgents.map((currentAgent, index) => runAgent(currentAgent, controllers[index].signal)))
+        const outcomes = activeAgents.length > 1
+          ? await Promise.allSettled([runParallelAgents()])
+          : await Promise.allSettled(activeAgents.map((currentAgent, index) => runAgent(currentAgent, controllers[index].signal)))
         if (cancelled) return
         if (outcomes.some((outcome) => outcome.status === 'rejected')) setPaused(true)
         else setActiveStep((value) => value + activeAgents.length)
