@@ -206,7 +206,7 @@ async function streamModel(settings, messages, onDelta, context = {}, signal) {
     if (buffer) emitPayload(buffer)
     if (!answer.trim()) throw new Error('مدل جریان پاسخ متنی معتبری برنگرداند.')
 
-    const result = { answer, model: settings.model, elapsedMs: Date.now() - started }
+    const result = { answer: sanitizeModelText(answer), model: settings.model, elapsedMs: Date.now() - started }
     addLog('info', 'model_stream_succeeded', { ...context, operation: 'agent_stream', provider: settings.provider, model: settings.model, elapsedMs: result.elapsedMs })
     return result
   } catch (error) {
@@ -255,7 +255,7 @@ app.post('/api/llm/agent', async (req, res) => {
       { requestId: req.requestId, agent: agent.title, caseId: caseData.id },
       abortController.signal,
     )
-    send({ type: 'done', model: result.model, elapsedMs: result.elapsedMs })
+    send({ type: 'done', answer: result.answer, model: result.model, elapsedMs: result.elapsedMs })
     res.end()
   } catch (error) {
     addLog('error', 'agent_request_failed', { requestId: req.requestId, agent: req.body?.agent?.title, caseId: req.body?.caseData?.id, model: req.body?.settings?.model, error: error instanceof Error ? error.message : String(error) })

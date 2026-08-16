@@ -74,7 +74,7 @@ function App() {
               setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { model: settings.model, elapsedMs: 0 }), answer: `${current[agent.id]?.answer || ''}${event.delta}` } }))
             } else if (event.type === 'done' && !cancelled) {
               completed = true
-              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), model: event.model || settings.model, elapsedMs: event.elapsedMs || 0 } }))
+              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), answer: event.answer || current[agent.id]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0 } }))
             } else if (event.type === 'error') throw new Error(event.error || 'جریان پاسخ مدل قطع شد.')
           }
         }

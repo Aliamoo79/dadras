@@ -11,3 +11,10 @@ test('removes unsupported scripts while preserving Persian and English', () => {
 test('normalizes Arabic letter variants to Persian forms', () => {
   assert.equal(sanitizeModelText('يك كتاب'), 'یک کتاب')
 })
+
+test('repairs common joined Persian legal compounds and suffixes', () => {
+  assert.equal(
+    sanitizeModelText('صورتوضعیتهای تفصیلی، پیشپرداخت و قراردادها لازمالاتباع میباشد.'),
+    'صورت‌وضعیت‌های تفصیلی، پیش‌پرداخت و قرارداد‌ها لازم‌الاتباع می‌باشد.',
+  )
+})

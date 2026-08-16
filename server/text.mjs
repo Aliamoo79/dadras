@@ -1,10 +1,25 @@
 const allowedCharacter = /[\p{Script=Arabic}\p{Script=Latin}\p{N}\p{P}\p{S}\s]/u
 
+export function normalizePersianTypography(value) {
+  return String(value || '')
+    .replace(/صورت\s*[-‌]?\s*وضعیت\s*های(?=$|[^\p{Script=Arabic}])/gu, 'صورت‌وضعیت‌های')
+    .replace(/صورت\s*[-‌]?\s*وضعیت\s*ها(?=$|[^\p{Script=Arabic}])/gu, 'صورت‌وضعیت‌ها')
+    .replace(/صورت\s*[-‌]?\s*وضعیت/gu, 'صورت‌وضعیت')
+    .replace(/صورت\s*[-‌]?\s*جلسه/gu, 'صورت‌جلسه')
+    .replace(/پیش\s*[-‌]?\s*پرداخت/gu, 'پیش‌پرداخت')
+    .replace(/لازم\s*[-‌]?\s*الاتباع/gu, 'لازم‌الاتباع')
+    .replace(/قائم\s*[-‌]?\s*مقام/gu, 'قائم‌مقام')
+    .replace(/حق\s*[-‌]?\s*(الزحمه|الوکاله)/gu, 'حق‌$1')
+    .replace(/(قرارداد|دادگاه|پیمان|هزینه|خسارت|تعهد|سند|مدرک|طرف|ماده|پرونده)(های|ها)(?=$|[^\p{Script=Arabic}])/gu, '$1‌$2')
+    .replace(/(^|[^\p{Script=Arabic}])(ن?می)(باشد|شود|کند|تواند|دهد|گردد|گیرد)(?=$|[^\p{Script=Arabic}])/gu, '$1$2‌$3')
+}
+
 export function sanitizeModelText(value) {
-  return [...String(value || '').normalize('NFKC')]
+  const clean = [...String(value || '').normalize('NFKC')]
     .filter((character) => allowedCharacter.test(character))
     .join('')
     .replace(/[يى]/g, 'ی')
     .replace(/ك/g, 'ک')
     .replace(/\uFFFD/g, '')
+  return normalizePersianTypography(clean)
 }
