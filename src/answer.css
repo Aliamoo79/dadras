@@ -1,3 +1,8 @@
+.app-shell, button, input, textarea, select { font-family: "Vazirmatn Variable", "Vazirmatn", Tahoma, sans-serif; }
+.brand strong, .hero h1, .dossier-header b, .section-heading h2, .case-number, .case-card h3, .workspace-head h1, .case-sidebar h2, .case-id b, .detail-title h2, .document h2, .document h3, .citation-summary strong, .citations h3, .modal h2, .logs-head h1, .log-stats b { font-family: "Vazirmatn Variable", "Vazirmatn", Tahoma, sans-serif; }
+.case-sidebar { min-width: 0; align-self: start; overflow: hidden; }
+.case-sidebar > p { max-height: 250px; margin: 8px -5px 6px; padding: 11px 12px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-wrap: anywhere; white-space: normal; border: 1px solid #e1e7e4; border-radius: 9px; background: #f6f8f6; scrollbar-gutter: stable; }
+.case-sidebar dd, .case-sidebar b { min-width: 0; overflow-wrap: anywhere; }
 .agent-row,
 .agent-copy { min-width: 0; }
 .agent-row { overflow: hidden; }

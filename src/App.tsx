@@ -322,7 +322,7 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
         <h2><FileText/> شناسنامه پرونده</h2>
         <div className="case-id"><small>شناسه یکتا</small><b>{caseData.id}</b></div>
         <dl><div><dt>طرفین</dt><dd>{caseData.parties}</dd></div><div><dt>نوع</dt><dd>{caseData.category}</dd></div><div><dt>مبلغ</dt><dd>{caseData.amount}</dd></div><div><dt>فوریت</dt><dd>{caseData.urgency}</dd></div></dl>
-        <h3>خلاصه ورودی</h3><p>{caseData.narrative}</p>
+        <h3>خلاصه ورودی</h3><p>{caseData.summary}</p>
         <button className="text-btn">مشاهده سند ورودی <ChevronLeft size={15}/></button>
       </aside>
 
