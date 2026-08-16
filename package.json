@@ -9,6 +9,7 @@
     "dev:server": "node --watch server/index.mjs",
     "build": "tsc -b && vite build",
     "test": "node --test server/*.test.mjs",
+    "knowledge:index": "node scripts/build-knowledge-index.mjs",
     "start": "node server/index.mjs",
     "preview": "vite preview"
   },
@@ -16,6 +17,7 @@
     "@vitejs/plugin-react": "latest",
     "express": "latest",
     "lucide-react": "latest",
+    "pdfjs-dist": "^6.2.108",
     "pm2": "7.0.3",
     "react": "latest",
     "react-dom": "latest",

@@ -25,3 +25,12 @@ test('bounds accumulated prior-agent context', () => {
   assert.ok(messages[1].content.length < 9000)
   assert.match(messages[1].content, /<current_agent_task>/)
 })
+
+test('injects retrieved sources into the RAG agent only', () => {
+  const references = [{ title: 'قانون مدنی', source: 'civil.md', sourceUrl: 'https://example.test/civil', text: 'ماده ۲۱۹: عقود لازم‌الاتباع هستند.' }]
+  const rag = buildAgentMessages({ id: 'rag', title: 'بازیابی', instruction: 'منابع را بازیابی کن.' }, caseData, [], references)
+  const other = buildAgentMessages({ id: 'facts', title: 'وقایع', instruction: 'وقایع را بخوان.' }, caseData, [], references)
+  assert.match(rag[1].content, /retrieved_legal_sources/)
+  assert.match(rag[1].content, /ماده ۲۱۹/)
+  assert.doesNotMatch(other[1].content, /retrieved_legal_sources/)
+})

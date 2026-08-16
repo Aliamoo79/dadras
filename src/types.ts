@@ -52,6 +52,13 @@ export interface LogEntry {
   [key: string]: unknown
 }
 
+export interface KnowledgeDocument {
+  id: string
+  title: string
+  size: number
+  updatedAt: string
+}
+
 export interface CaseData {
   id: string
   title: string

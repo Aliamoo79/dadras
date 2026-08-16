@@ -160,8 +160,17 @@ Do not expose Ollama port `11434`. Direct public access has no authentication in
 - Previous agent responses passed into the next agent as context
 - Live streamed model output with a brief preview on every agent step, model identifier, elapsed time, and failure details
 - In-app diagnostics page with request IDs, upstream errors, filtering, and bounded recent logs
+- Persistent TXT/Markdown legal knowledge library with lexical passage retrieval for the RAG agent
 - Configurable Ollama or OpenAI-compatible provider with connection testing
 - Proposed judgment and a mandatory human-review checkpoint
 - Persian RTL responsive interface with keyboard and reduced-motion support
 
-OCR/ASR, a real legal RAG database, official citation validation, authentication, and persistent audit trails are not implemented yet. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the system design.
+Add references from the in-app `پایگاه قوانین` page. Uploaded `.txt` and `.md` content is stored under `knowledge/user/` and is searched automatically on every RAG-agent run. A starter Iranian contract-law reference is included in `knowledge/iranian-contract-law.md`.
+
+The supplied Civil Code and Constitution PDFs are preprocessed into page- and article-aware chunks in `knowledge/pdf-index.json`. Rebuild this index after replacing either PDF:
+
+```bash
+npm run knowledge:index
+```
+
+OCR/ASR, semantic/vector retrieval, automatic official-citation validation, authentication, and persistent audit trails are not implemented yet. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the system design.

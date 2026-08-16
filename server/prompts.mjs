@@ -6,12 +6,16 @@ const compact = (value, limit) => {
   return text.length > limit ? `${text.slice(0, limit)}…` : text
 }
 
-export function buildAgentMessages(agent, caseData, previousOutputs = []) {
+export function buildAgentMessages(agent, caseData, previousOutputs = [], references = []) {
   const system = `شما عامل تخصصی «${agent.title}» در یک دموی آموزشی سامانه قضایی ایران هستید. فقط وظیفه تخصصی همین عامل را انجام دهید؛ گزارش عمومی پرونده یا پاسخ عامل قبلی را تکرار نکنید. پاسخ را فقط به فارسی، روشن و حرفه‌ای بنویسید. داده‌ها ساختگی‌اند؛ رأی قطعی یا مشاوره حقوقی واقعی ندهید. استدلال، عدم قطعیت و موارد نیازمند بررسی انسان را آشکار کنید. پاسخ بین ۹۰ تا ۱۶۰ واژه و با سه عنوان «نتیجه تخصصی این مرحله»، «استدلال تخصصی» و «نیازمند بررسی قاضی» ساختاربندی شود.`
 
   const priorContext = previousOutputs.length
     ? compact(previousOutputs.map((item) => `[${item.title}]\n${compact(item.answer, MAX_PRIOR_OUTPUT_CHARS)}`).join('\n\n'), MAX_PRIOR_CONTEXT_CHARS)
     : 'این نخستین مرحله است و خروجی قبلی وجود ندارد.'
+
+  const referenceContext = references.length
+    ? references.map((item, index) => `[منبع ${index + 1}: ${item.title}${item.citation ? ` · ${item.citation}` : ''}${item.page ? ` · صفحه ${item.page}` : ''}]\n${item.text}\nنشانی: ${item.sourceUrl || item.source}`).join('\n\n')
+    : 'منبع بازیابی‌شده‌ای برای این مرحله وجود ندارد.'
 
   const user = `<case_data>
 شناسه: ${caseData.id}
@@ -27,7 +31,12 @@ export function buildAgentMessages(agent, caseData, previousOutputs = []) {
 ${priorContext}
 </prior_context>
 
-<current_agent_task>
+${agent.id === 'rag' ? `<retrieved_legal_sources>
+فقط از منابع زیر برای پیشنهاد استناد استفاده کنید. نام منبع و شماره ماده را در پاسخ ذکر کنید و در نبود متن کافی، صریحاً نیاز به بررسی منبع رسمی را اعلام کنید.
+${referenceContext}
+</retrieved_legal_sources>
+
+` : ''}<current_agent_task>
 نقش فعلی: ${agent.title}
 وظیفه انحصاری: ${agent.instruction}
 

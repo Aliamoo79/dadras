@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Bug, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RefreshCw, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Trash2, Upload, Wifi, X } from 'lucide-react'
 import { agents, legalCitations, sampleCases } from './data'
-import type { AgentResponse, CaseData, LlmSettings, LogEntry } from './types'
+import type { AgentResponse, CaseData, KnowledgeDocument, LlmSettings, LogEntry } from './types'
 
-type Screen = 'home' | 'workspace' | 'logs'
+type Screen = 'home' | 'workspace' | 'logs' | 'knowledge'
 type Tab = 'agents' | 'verdict' | 'citations'
 type ConnectionState = 'untested' | 'testing' | 'connected' | 'failed'
 
@@ -48,7 +48,7 @@ function App() {
       try {
         const response = await fetch('/api/llm/agent', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-          body: JSON.stringify({ settings, agent: { title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
+          body: JSON.stringify({ settings, agent: { id: agent.id, title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
         })
         if (!response.ok) {
           const body = await response.json().catch(() => ({}))
@@ -145,7 +145,7 @@ function App() {
           <button className={screen === 'home' ? 'active' : ''} onClick={() => { setScreen('home'); setMobileMenu(false) }}>میز کار</button>
           <button onClick={() => { setScreen('workspace'); setMobileMenu(false) }}>پرونده‌ها</button>
           <button className={screen === 'logs' ? 'active' : ''} onClick={() => { setScreen('logs'); setMobileMenu(false) }}>گزارش خطاها</button>
-          <button onClick={() => setMobileMenu(false)}>پایگاه قوانین</button>
+          <button className={screen === 'knowledge' ? 'active' : ''} onClick={() => { setScreen('knowledge'); setMobileMenu(false) }}>پایگاه قوانین</button>
           <button onClick={() => setMobileMenu(false)}>راهنما</button>
         </nav>
         <div className="header-tools">
@@ -158,7 +158,7 @@ function App() {
 
       <div className="notice"><Shield size={16}/><span><b>محیط نمایشی و آموزشی</b> — خروجی سامانه صرفاً پیشنهادی است و اعتبار قضایی ندارد. تصمیم نهایی باید توسط قاضی انسانی تأیید شود.</span></div>
 
-      {screen === 'home' ? <Home onStart={startCase} onUpload={() => setUploadOpen(true)} /> : screen === 'logs' ? <LogsPage/> : (
+      {screen === 'home' ? <Home onStart={startCase} onUpload={() => setUploadOpen(true)} /> : screen === 'logs' ? <LogsPage/> : screen === 'knowledge' ? <KnowledgePage/> : (
         <Workspace caseData={caseData} activeStep={activeStep} progress={progress} paused={paused} finished={finished} selectedAgent={selectedAgent} tab={tab} setTab={setTab} setSelectedAgent={setSelectedAgent} statusFor={statusFor} agentResults={agentResults} agentErrors={agentErrors} model={settings.model} onStart={() => startCase()} onPause={() => setPaused(!paused)} onReset={reset} onSettings={() => setSettingsOpen(true)}/>
       )}
 
@@ -218,6 +218,51 @@ function LogsPage() {
         </dl><pre dir="ltr">{JSON.stringify(entry, null, 2)}</pre></div>}
       </article>)}</div>
     </section>
+  </main>
+}
+
+function KnowledgePage() {
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const loadDocuments = async () => {
+    const response = await fetch('/api/knowledge')
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || 'دریافت منابع ناموفق بود.')
+    setDocuments(body.documents || [])
+  }
+
+  useEffect(() => { void loadDocuments().catch((error) => setMessage(error.message)) }, [])
+
+  const saveDocument = async () => {
+    if (!title.trim() || !content.trim()) { setMessage('نام منبع و متن مرجع را وارد کنید.'); return }
+    setSaving(true); setMessage('')
+    try {
+      const response = await fetch('/api/knowledge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content }) })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'ذخیره منبع ناموفق بود.')
+      setTitle(''); setContent(''); setMessage('منبع ذخیره شد و از اجرای بعدی در RAG جست‌وجو می‌شود.')
+      await loadDocuments()
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'خطای ناشناخته') }
+    finally { setSaving(false) }
+  }
+
+  const pickFile = async (file?: File) => {
+    if (!file) return
+    setTitle(file.name.replace(/\.(md|txt)$/i, ''))
+    setContent(await file.text())
+    setMessage('')
+  }
+
+  return <main className="knowledge-page">
+    <div className="knowledge-head"><div><span>منابع ماندگار RAG</span><h1>پایگاه قوانین و مراجع</h1><p>متن قانون، کتاب یا یادداشت حقوقی را اضافه کنید. عامل بازیابی دانش بخش‌های مرتبط را خودکار در پاسخ به کار می‌گیرد.</p></div><BookOpenCheck/></div>
+    <div className="knowledge-grid">
+      <section className="knowledge-editor"><h2>افزودن منبع</h2><label>نام منبع<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="مثلاً: شرح قانون مدنی"/></label><label>متن مرجع<textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="متن مرجع را اینجا بچسبانید…"/></label><div className="knowledge-actions"><label className="secondary file-picker"><Upload/>خواندن TXT یا MD<input type="file" accept=".txt,.md,text/plain,text/markdown" onChange={(event) => void pickFile(event.target.files?.[0])}/></label><button className="primary" disabled={saving} onClick={() => void saveDocument()}>{saving ? 'در حال ذخیره…' : 'ذخیره در پایگاه'}</button></div>{message && <p className="knowledge-message">{message}</p>}</section>
+      <section className="knowledge-library"><div><small>منابع فعال</small><h2>{faNumber(documents.length)} منبع قابل جست‌وجو</h2></div><div className="knowledge-list">{documents.map((document) => <article key={document.id}><FileText/><div><b>{document.title}</b><small>{faNumber(Math.ceil(document.size / 1024))} کیلوبایت · {new Date(document.updatedAt).toLocaleDateString('fa-IR')}</small></div><CheckCircle2/></article>)}</div></section>
+    </div>
   </main>
 }
 
@@ -286,7 +331,7 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
           <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; const preview = agentResults[agent.id]?.answer; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{preview ? `${preview.replace(/\s+/g, ' ').slice(0, 92)}${preview.length > 92 ? '…' : ''}` : `${agent.layer} · ${agent.subtitle}`}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
           <div className="agent-detail">
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
-            {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' && !selectedResult?.answer ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>با دریافت نخستین بخش پاسخ، متن به‌صورت زنده نمایش داده می‌شود.</p></div> : <><div className="response-meta"><span><Sparkles/> {statusFor(selectedAgent) === 'running' ? 'پاسخ زنده مدل' : 'پاسخ مستقیم مدل'}</span><span>{selectedResult?.model} {statusFor(selectedAgent) === 'running' ? '· در حال دریافت…' : selectedResult ? `· ${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className={`reason-box llm-answer ${statusFor(selectedAgent) === 'running' ? 'streaming' : ''}`}><p>{selectedResult?.answer || selected.result}</p></div>{statusFor(selectedAgent) !== 'running' && <div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div>}</>}
+            {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' && !selectedResult?.answer ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>با دریافت نخستین بخش پاسخ، متن به‌صورت زنده نمایش داده می‌شود.</p></div> : <><div className="response-meta"><span><Sparkles/> {statusFor(selectedAgent) === 'running' ? 'پاسخ زنده مدل' : 'پاسخ مستقیم مدل'}</span><span>{selectedResult?.model} {statusFor(selectedAgent) === 'running' ? '· در حال دریافت…' : selectedResult ? `· ${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className={`reason-box llm-answer ${statusFor(selectedAgent) === 'running' ? 'streaming' : ''}`}><FormattedAnswer text={selectedResult?.answer || selected.result}/></div>{statusFor(selectedAgent) !== 'running' && <div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div>}</>}
           </div>
         </div>}
         {tab === 'verdict' && <Verdict ready={finished} modelAnswer={agentResults.synthesis?.answer}/>}
@@ -296,11 +341,28 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
   </main>
 }
 
+function InlineBold({ text }: { text: string }) {
+  return <>{text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong> : part)}</>
+}
+
+function FormattedAnswer({ text }: { text: string }) {
+  const lines = text.replace(/\r/g, '').split('\n')
+  return <div className="answer-document">{lines.map((raw, index) => {
+    const line = raw.trim()
+    if (!line) return <span className="answer-space" key={index}/>
+    const heading = line.match(/^(?:#{1,4}\s*|\*\*)(.*?)(?:\*\*)?$/)
+    if (heading || /^(نتیجه|استدلال|جمع‌بندی|نیازمند بررسی|منابع|پیشنهاد|تحلیل)(?:\s|:|$)/.test(line)) return <h3 key={index}><InlineBold text={(heading?.[1] || line).replace(/:$/, '')}/></h3>
+    const list = line.match(/^([۰-۹0-9]+[.)-]|[-•])\s*(.*)$/)
+    if (list) return <div className="answer-list-item" key={index}><span>{list[1]}</span><p><InlineBold text={list[2]}/></p></div>
+    return <p key={index}><InlineBold text={line}/></p>
+  })}</div>
+}
+
 function Verdict({ ready, modelAnswer }: { ready: boolean; modelAnswer?: string }) {
   if (!ready) return <div className="locked"><Gavel/><h2>پیش‌نویس هنوز آماده نیست</h2><p>برای مشاهده رأی پیشنهادی، اجازه دهید همه عامل‌ها و مرحله صحت‌سنجی تکمیل شوند.</p></div>
   return <div className="verdict">
     <div className="verdict-banner"><ShieldCheck/><div><b>پیش‌نویس با موفقیت صحت‌سنجی شد</b><span>۴ استناد بررسی شد · ۱ مورد نیازمند توجه قاضی</span></div></div>
-    <div className="document"><div className="document-kicker">به نام خدا · جمع‌بندی تولیدشده توسط مدل</div><h2>دادنامه پیشنهادی</h2><p className="generated-verdict">{modelAnswer || 'جمع‌بندی مدل در دسترس نیست.'}</p><div className="judge-note"><AlertTriangle/><p><b>نقطه تصمیم انسانی:</b> تمام محاسبات، اصالت اسناد و استنادهای حقوقی باید پیش از هر استفاده توسط قاضی بررسی شوند.</p></div></div>
+    <div className="document"><div className="document-kicker">به نام خدا · جمع‌بندی تولیدشده توسط مدل</div><h2>دادنامه پیشنهادی</h2><div className="generated-verdict"><FormattedAnswer text={modelAnswer || 'جمع‌بندی مدل در دسترس نیست.'}/></div><div className="judge-note"><AlertTriangle/><p><b>نقطه تصمیم انسانی:</b> تمام محاسبات، اصالت اسناد و استنادهای حقوقی باید پیش از هر استفاده توسط قاضی بررسی شوند.</p></div></div>
     <div className="verdict-actions"><button className="secondary">دریافت گزارش کامل</button><button className="primary">ارسال برای بازبینی انسانی <ArrowLeft/></button></div>
   </div>
 }

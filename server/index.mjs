@@ -3,6 +3,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { buildAgentMessages } from './prompts.mjs'
+import { listKnowledgeDocuments, saveKnowledgeDocument, searchKnowledge } from './knowledge.mjs'
+import { sanitizeModelText } from './text.mjs'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -58,6 +60,15 @@ app.delete('/api/logs', (_req, res) => {
   logs.length = 0
   addLog('info', 'logs_cleared', { cleared })
   res.json({ ok: true, cleared })
+})
+
+app.get('/api/knowledge', async (_req, res, next) => {
+  try { res.json({ documents: await listKnowledgeDocuments() }) } catch (error) { next(error) }
+})
+
+app.post('/api/knowledge', async (req, res, next) => {
+  try { res.status(201).json({ ok: true, document: await saveKnowledgeDocument(req.body?.title, req.body?.content) }) }
+  catch (error) { next(error) }
 })
 
 const cleanBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '')
@@ -123,7 +134,7 @@ async function callModel(settings, messages, testOnly = false, context = {}) {
     const data = await response.json()
     if (!data.message?.content) throw new Error('مدل پاسخ متنی معتبری برنگرداند.')
     addLog('info', 'model_request_succeeded', { ...context, operation, provider: settings.provider, model: data.model || settings.model, elapsedMs: Date.now() - started })
-    return { answer: data.message?.content || '', model: data.model || settings.model, elapsedMs: Date.now() - started }
+    return { answer: sanitizeModelText(data.message?.content || ''), model: data.model || settings.model, elapsedMs: Date.now() - started }
   }
 
   const headers = { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) }
@@ -140,7 +151,7 @@ async function callModel(settings, messages, testOnly = false, context = {}) {
   const data = await response.json()
   if (!data.choices?.[0]?.message?.content) throw new Error('ساختار پاسخ API معتبر نیست: choices[0].message.content یافت نشد.')
   addLog('info', 'model_request_succeeded', { ...context, operation, provider: settings.provider, model: data.model || settings.model, elapsedMs: Date.now() - started })
-  return { answer: data.choices?.[0]?.message?.content || '', model: data.model || settings.model, elapsedMs: Date.now() - started }
+  return { answer: sanitizeModelText(data.choices?.[0]?.message?.content || ''), model: data.model || settings.model, elapsedMs: Date.now() - started }
 }
 
 async function streamModel(settings, messages, onDelta, context = {}, signal) {
@@ -174,7 +185,10 @@ async function streamModel(settings, messages, onDelta, context = {}, signal) {
       let data
       try { data = JSON.parse(jsonText) } catch { return }
       const delta = isOllama ? data.message?.content : data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content
-      if (typeof delta === 'string' && delta) { answer += delta; onDelta(delta) }
+      if (typeof delta === 'string' && delta) {
+        const cleanDelta = sanitizeModelText(delta)
+        if (cleanDelta) { answer += cleanDelta; onDelta(cleanDelta) }
+      }
     }
 
     const reader = response.body.getReader()
@@ -222,7 +236,10 @@ app.post('/api/llm/agent', async (req, res) => {
   try {
     const { settings, agent, caseData, previousOutputs = [] } = req.body
     if (!agent?.title || !caseData?.summary) return res.status(400).json({ error: 'اطلاعات عامل یا پرونده ناقص است.' })
-    const messages = buildAgentMessages(agent, caseData, previousOutputs)
+    const references = agent.id === 'rag'
+      ? await searchKnowledge(`${caseData.title}\n${caseData.category}\n${caseData.narrative}\n${agent.instruction}`, 6)
+      : []
+    const messages = buildAgentMessages(agent, caseData, previousOutputs, references)
     res.status(200).set({
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
