@@ -162,7 +162,7 @@ function App() {
         <Workspace caseData={caseData} activeStep={activeStep} progress={progress} paused={paused} finished={finished} selectedAgent={selectedAgent} tab={tab} setTab={setTab} setSelectedAgent={setSelectedAgent} statusFor={statusFor} agentResults={agentResults} agentErrors={agentErrors} model={settings.model} onStart={() => startCase()} onPause={() => setPaused(!paused)} onReset={reset} onSettings={() => setSettingsOpen(true)}/>
       )}
 
-      {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onPick={() => fileRef.current?.click()} onStart={() => startCase()} fileRef={fileRef}/>} 
+      {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onPick={() => fileRef.current?.click()} onStart={(uploaded: CaseData) => startCase(uploaded)} fileRef={fileRef}/>}
       {settingsOpen && <SettingsModal initial={settings} connection={connection} message={connectionMessage} onTest={testConnection} onSave={saveSettings} onClose={() => setSettingsOpen(false)}/>}
     </div>
   )
@@ -397,7 +397,22 @@ function SettingsModal({ initial, connection, message, onTest, onSave, onClose }
 
 function UploadModal({ onClose, onPick, onStart, fileRef }: any) {
   const [file, setFile] = useState<File | null>(null)
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title"><button className="modal-close" onClick={onClose}><X/></button><span className="modal-icon"><Upload/></span><h2 id="upload-title">افزودن پرونده برای تحلیل</h2><p>یک PDF یا فایل صوتی جلسه انتخاب کنید. در این دمو، محتوای نمونه جایگزین پردازش واقعی می‌شود.</p><button className="dropzone" onClick={onPick}><FileText/><b>{file ? file.name : 'فایل را انتخاب کنید'}</b><small>PDF، MP3 یا WAV · حداکثر ۲۵ مگابایت</small></button><input ref={fileRef} hidden type="file" accept=".pdf,audio/*" onChange={(e) => setFile(e.target.files?.[0] || null)}/><div className="privacy"><Shield/><span>شناسه‌های حساس در مرحله ادراک پوشانده می‌شوند.</span></div><button className="primary full" onClick={onStart}>{file ? 'افزودن و آغاز تحلیل' : 'اجرای محتوای نمونه'}<ArrowLeft/></button></div></div>
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const upload = async () => {
+    if (!file) { setError('ابتدا یک فایل PDF انتخاب کنید.'); return }
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { setError('در حال حاضر فقط PDF متنی پشتیبانی می‌شود.'); return }
+    if (file.size > 25 * 1024 * 1024) { setError('حجم PDF باید کمتر از ۲۵ مگابایت باشد.'); return }
+    setLoading(true); setError('')
+    try {
+      const response = await fetch('/api/cases/extract', { method: 'POST', headers: { 'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(file.name) }, body: file })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'استخراج متن PDF ناموفق بود.')
+      onStart(body.caseData)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'خطای ناشناخته') }
+    finally { setLoading(false) }
+  }
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title"><button className="modal-close" onClick={onClose}><X/></button><span className="modal-icon"><Upload/></span><h2 id="upload-title">افزودن پرونده برای تحلیل</h2><p>متن PDF واقعی استخراج و به‌عنوان ورودی همه عامل‌ها استفاده می‌شود. PDF اسکن‌شده به OCR نیاز دارد.</p><button className="dropzone" onClick={onPick} disabled={loading}><FileText/><b>{file ? file.name : 'فایل PDF را انتخاب کنید'}</b><small>PDF متنی · حداکثر ۲۵ مگابایت</small></button><input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] || null); setError('') }}/><div className="privacy"><Shield/><span>فایل به پایگاه دانش اضافه نمی‌شود؛ فقط متن آن در تحلیل جاری استفاده می‌شود.</span></div>{error && <div className="upload-error"><AlertCircle/>{error}</div>}<button className="primary full" disabled={!file || loading} onClick={() => void upload()}>{loading ? 'در حال خواندن PDF…' : 'افزودن و آغاز تحلیل'}<ArrowLeft/></button></div></div>
 }
 
 export default App

@@ -29,6 +29,8 @@
 .citation-empty svg { width: 38px; height: 38px; margin-bottom: 12px; }
 .citation-empty b { color: #173f49; }
 .citation-empty p { max-width: 430px; line-height: 2; }
+.upload-error { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 13px; padding: 10px 12px; border-radius: 8px; background: #f9e7e3; color: #913f34; text-align: right; font-size: 10px; line-height: 1.7; }
+.upload-error svg { width: 15px; flex: none; }
 
 .knowledge-page { width: min(1180px, calc(100% - 40px)); margin: 42px auto 70px; }
 .knowledge-head { display: flex; justify-content: space-between; gap: 30px; align-items: center; margin-bottom: 26px; }

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { buildAgentMessages } from './prompts.mjs'
 import { listKnowledgeDocuments, saveKnowledgeDocument, searchKnowledge } from './knowledge.mjs'
 import { sanitizeModelText } from './text.mjs'
+import { extractPdfCase } from './case.mjs'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -69,6 +70,17 @@ app.get('/api/knowledge', async (_req, res, next) => {
 app.post('/api/knowledge', async (req, res, next) => {
   try { res.status(201).json({ ok: true, document: await saveKnowledgeDocument(req.body?.title, req.body?.content) }) }
   catch (error) { next(error) }
+})
+
+app.post('/api/cases/extract', express.raw({ type: 'application/pdf', limit: '25mb' }), async (req, res, next) => {
+  try {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'فایل PDF ارسال نشده است.' })
+    const encodedName = String(req.get('X-File-Name') || 'case.pdf')
+    const filename = decodeURIComponent(encodedName)
+    const caseData = await extractPdfCase(req.body, filename)
+    addLog('info', 'case_pdf_extracted', { requestId: req.requestId, filename, caseId: caseData.id, characters: caseData.narrative.length })
+    res.json({ ok: true, caseData })
+  } catch (error) { next(error) }
 })
 
 const cleanBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '')
