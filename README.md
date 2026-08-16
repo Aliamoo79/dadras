@@ -6,13 +6,13 @@ Dadras is a Persian, right-to-left proof of concept that sends each stage of a j
 
 ## Ubuntu VPS deployment
 
-The recommended production layout is:
+The production layout is:
 
 ```text
-Internet → Nginx :80/:443 → Dadras :8787 → Ollama :11434
+Internet → Dadras :8012 → model API
 ```
 
-Dadras and Ollama listen only on the VPS loopback interface. Do not expose port `11434` publicly.
+Dadras is managed by PM2 and listens directly on the configured application port. Do not expose Ollama port `11434` publicly.
 
 ### Quick first-time installation
 
@@ -26,20 +26,21 @@ chmod +x install.sh
 ```
 
 The installer adds the system prerequisites, installs system-wide Node.js 22 when
-the existing Node version is incompatible, builds Dadras, configures Nginx, opens
-Nginx in UFW when the firewall is active, and starts the application. You can then
-open `http://YOUR_VPS_IP` in a browser. The installer can safely be run again.
+the existing Node version is incompatible, builds Dadras, registers PM2 for reboot
+recovery, opens the application port in UFW when active, and starts the application.
+You can then open `http://YOUR_VPS_IP:8012`. The installer can safely be run again.
 
-To configure a domain during installation, point its DNS record to the VPS and run:
+Choose a different port when needed:
 
 ```bash
-DOMAIN=dadras.example.com ./install.sh
+PORT=8787 ./install.sh
 ```
 
-Continue with the Ollama configuration below after it completes. Add HTTPS with
-Certbot before entering API keys into the application.
+Continue with the model configuration below after it completes. Direct access is
+plain HTTP; do not enter sensitive production credentials without adding a secure
+authenticated network layer.
 
-### 1. Manual installation of Node.js, Git, and Nginx
+### 1. Manual installation of Node.js and Git
 
 Install Node.js `20.19+` or `22.12+` using your preferred Ubuntu method. Node.js 18 is not supported by the Vite/Rolldown build toolchain. Then confirm:
 
@@ -49,11 +50,11 @@ npm --version
 git --version
 ```
 
-Install Nginx:
+Install the base tools:
 
 ```bash
 sudo apt update
-sudo apt install -y nginx curl
+sudo apt install -y git curl
 ```
 
 ### 2. Clone the application
@@ -113,21 +114,7 @@ Inspect logs with:
 
 Check or control the process with `./node_modules/.bin/pm2 status`, `restart dadras`, and `stop dadras`.
 
-### 5. Configure Nginx
-
-Copy the included template and replace `dadras.example.com` with your domain or VPS IP:
-
-```bash
-sudo cp deploy/dadras.nginx.conf /etc/nginx/sites-available/dadras
-sudo nano /etc/nginx/sites-available/dadras
-sudo ln -s /etc/nginx/sites-available/dadras /etc/nginx/sites-enabled/dadras
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-For a domain, add HTTPS using Certbot before sending API keys through the application.
-
-### 6. Configure the model in Dadras
+### 5. Configure the model in Dadras
 
 Open your domain or VPS IP, select **LLM settings**, choose **Local model**, and enter:
 
