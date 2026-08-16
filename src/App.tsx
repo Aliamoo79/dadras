@@ -37,51 +37,53 @@ function App() {
   useEffect(() => {
     if (!running || paused) return
     const agent = agents[activeStep]
+    const activeAgents = agent.parallelGroup ? agents.filter((item) => item.parallelGroup === agent.parallelGroup) : [agent]
     let cancelled = false
     const controller = new AbortController()
     setSelectedAgent(activeStep)
-    setAgentErrors((current) => { const next = { ...current }; delete next[agent.id]; return next })
+    setAgentErrors((current) => { const next = { ...current }; activeAgents.forEach((item) => delete next[item.id]); return next })
     const previousOutputs = agents.slice(0, activeStep).flatMap((item) => agentResults[item.id] ? [{ title: item.title, answer: agentResults[item.id].answer }] : [])
-    setAgentResults((current) => ({ ...current, [agent.id]: { answer: '', model: settings.model, elapsedMs: 0 } }))
+    setAgentResults((current) => Object.fromEntries([...Object.entries(current), ...activeAgents.map((item) => [item.id, { answer: '', model: settings.model, elapsedMs: 0 }])]))
 
     void (async () => {
       try {
-        const response = await fetch('/api/llm/agent', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-          body: JSON.stringify({ settings, agent: { id: agent.id, title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
-        })
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}))
-          throw new Error(body.error || 'پاسخی از مدل دریافت نشد.')
-        }
-        if (!response.body) throw new Error('جریان پاسخ مدل در مرورگر در دسترس نیست.')
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let completed = false
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const blocks = buffer.split(/\r?\n\r?\n/)
-          buffer = blocks.pop() || ''
-          for (const block of blocks) {
-            const line = block.split(/\r?\n/).find((item) => item.startsWith('data:'))
-            if (!line) continue
-            const event = JSON.parse(line.slice(5).trim())
-            if (event.type === 'delta' && !cancelled) {
-              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { model: settings.model, elapsedMs: 0 }), answer: `${current[agent.id]?.answer || ''}${event.delta}` } }))
-            } else if (event.type === 'done' && !cancelled) {
-              completed = true
-              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), answer: event.answer || current[agent.id]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0, references: event.references || [] } }))
-            } else if (event.type === 'error') throw new Error(event.error || 'جریان پاسخ مدل قطع شد.')
+        const runAgent = async (currentAgent: typeof agent) => {
+          try {
+            const response = await fetch('/api/llm/agent', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+              body: JSON.stringify({ settings, agent: { id: currentAgent.id, title: currentAgent.title, instruction: currentAgent.instruction }, caseData, previousOutputs }),
+            })
+            if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'پاسخی از مدل دریافت نشد.') }
+            if (!response.body) throw new Error('جریان پاسخ مدل در مرورگر در دسترس نیست.')
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let completed = false
+            while (true) {
+              const { value, done } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+              const blocks = buffer.split(/\r?\n\r?\n/)
+              buffer = blocks.pop() || ''
+              for (const block of blocks) {
+                const line = block.split(/\r?\n/).find((item) => item.startsWith('data:'))
+                if (!line) continue
+                const event = JSON.parse(line.slice(5).trim())
+                if (event.type === 'delta' && !cancelled) setAgentResults((current) => ({ ...current, [currentAgent.id]: { ...(current[currentAgent.id] || { model: settings.model, elapsedMs: 0 }), answer: `${current[currentAgent.id]?.answer || ''}${event.delta}` } }))
+                else if (event.type === 'done' && !cancelled) { completed = true; setAgentResults((current) => ({ ...current, [currentAgent.id]: { ...(current[currentAgent.id] || { answer: '' }), answer: event.answer || current[currentAgent.id]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0, references: event.references || [] } })) }
+                else if (event.type === 'error') throw new Error(event.error || 'جریان پاسخ مدل قطع شد.')
+              }
+            }
+            if (!completed) throw new Error('جریان پاسخ پیش از تکمیل قطع شد.')
+          } catch (error) {
+            if (!cancelled) setAgentErrors((current) => ({ ...current, [currentAgent.id]: error instanceof Error ? error.message : 'خطای ناشناخته جریان' }))
+            throw error
           }
         }
-        if (!completed) throw new Error('جریان پاسخ پیش از تکمیل قطع شد.')
-        if (!cancelled) setActiveStep((value) => value + 1)
+        await Promise.all(activeAgents.map(runAgent))
+        if (!cancelled) setActiveStep((value) => value + activeAgents.length)
       } catch (error) {
-        if (!cancelled) { setAgentErrors((current) => ({ ...current, [agent.id]: error instanceof Error ? error.message : 'خطای ناشناخته جریان' })); setPaused(true) }
+        if (!cancelled) setPaused(true)
       }
     })()
     return () => { cancelled = true; controller.abort() }
@@ -112,7 +114,13 @@ function App() {
     setAgentErrors({})
   }
 
-  const statusFor = (index: number) => agentErrors[agents[index].id] ? 'error' : index < activeStep ? 'done' : index === activeStep && !finished ? 'running' : 'waiting'
+  const statusFor = (index: number) => {
+    if (agentErrors[agents[index].id]) return 'error'
+    if (index < activeStep) return 'done'
+    const activeAgent = agents[activeStep]
+    if (!finished && (index === activeStep || (activeAgent?.parallelGroup && agents[index].parallelGroup === activeAgent.parallelGroup))) return 'running'
+    return 'waiting'
+  }
 
   const saveSettings = (next: LlmSettings) => {
     setSettings(next)
@@ -312,7 +320,7 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
     </div>
 
     <div className="progress-panel">
-      <div className="progress-meta"><span>{finished ? <><CheckCircle2/> تحلیل کامل شد</> : activeStep < 0 ? <><CircleDashed/> آماده پردازش</> : <><span className="pulse-dot"/> {paused ? 'پردازش متوقف است' : `در حال اجرای ${agents[activeStep]?.title}`}</>}</span><b>{faNumber(progress)}٪</b></div>
+      <div className="progress-meta"><span>{finished ? <><CheckCircle2/> تحلیل کامل شد</> : activeStep < 0 ? <><CircleDashed/> آماده پردازش</> : <><span className="pulse-dot"/> {paused ? 'پردازش متوقف است' : agents[activeStep]?.parallelGroup === 'advocates' ? 'در حال اجرای هم‌زمان وکیل خواهان و وکیل خوانده' : `در حال اجرای ${agents[activeStep]?.title}`}</>}</span><b>{faNumber(progress)}٪</b></div>
       <div className="progress-track"><span style={{ width: `${progress}%` }}/></div>
       <div className="layer-labels">{['ادراک', 'پردازش', 'استدلال', 'تصمیم نهایی', 'صحت‌سنجی'].map((x) => <span key={x}>{x}</span>)}</div>
     </div>
@@ -331,8 +339,10 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
         {tab === 'agents' && <div className="agents-layout">
           <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
           <div className="agent-detail">
+            {selected.parallelGroup === 'advocates' ? <AdvocateComparison agentResults={agentResults} agentErrors={agentErrors} statusFor={statusFor} model={model}/> : <>
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
             {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' && !selectedResult?.answer ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>با دریافت نخستین بخش پاسخ، متن به‌صورت زنده نمایش داده می‌شود.</p></div> : <><div className="response-meta"><span><Sparkles/> {statusFor(selectedAgent) === 'running' ? 'پاسخ زنده مدل' : 'پاسخ مستقیم مدل'}</span><span>{selectedResult?.model} {statusFor(selectedAgent) === 'running' ? '· در حال دریافت…' : selectedResult ? `· ${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className={`reason-box llm-answer ${statusFor(selectedAgent) === 'running' ? 'streaming' : ''}`}><FormattedAnswer text={selectedResult?.answer || selected.result}/></div>{statusFor(selectedAgent) !== 'running' && <div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div>}</>}
+            </>}
           </div>
         </div>}
         {tab === 'verdict' && <Verdict ready={finished} modelAnswer={agentResults.synthesis?.answer}/>}
@@ -340,6 +350,26 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
       </section>
     </div>
   </main>
+}
+
+function AdvocateComparison({ agentResults, agentErrors, statusFor, model }: { agentResults: Record<string, AgentResponse>; agentErrors: Record<string, string>; statusFor: (index: number) => string; model: string }) {
+  const advocates = agents.filter((agent) => agent.parallelGroup === 'advocates')
+  return <div className="advocate-comparison">
+    <div className="detail-title debate-title"><span className="large-icon"><Scale/></span><div><small>اجرای هم‌زمان · دو دیدگاه مستقل</small><h2>استدلال طرفین</h2></div><span className="parallel-badge"><span className="pulse-dot"/>موازی</span></div>
+    <div className="advocate-grid">{advocates.map((advocate) => {
+      const index = agents.findIndex((item) => item.id === advocate.id)
+      const state = statusFor(index)
+      const result = agentResults[advocate.id]
+      const error = agentErrors[advocate.id]
+      const Icon = advocate.icon
+      return <article className={`advocate-card ${advocate.perspective}`} key={advocate.id}>
+        <header><span><Icon/></span><div><small>{advocate.perspective === 'claimant' ? 'به نفع خواهان' : 'به نفع خوانده'}</small><h3>{advocate.title}</h3></div><span className={`advocate-state ${state}`}>{state === 'running' ? <span className="spinner"/> : state === 'done' ? <Check/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></header>
+        {error ? <div className="advocate-error"><AlertCircle/><p>{error}</p></div> : state === 'waiting' ? <div className="advocate-waiting"><CircleDashed/><p>این دفاع پس از مراحل پیشین هم‌زمان با دیدگاه طرف مقابل اجرا می‌شود.</p></div> : state === 'running' && !result?.answer ? <div className="advocate-waiting"><span className="thinking-orbit"><Sparkles/></span><p>{model} در حال تهیه دفاع است…</p></div> : <><div className="advocate-meta"><span>{state === 'running' ? 'پاسخ زنده' : 'دفاع تکمیل‌شده'}</span><small>{result?.model}{result?.elapsedMs ? ` · ${(result.elapsedMs / 1000).toFixed(1)}s` : ''}</small></div><div className={`advocate-answer ${state === 'running' ? 'streaming' : ''}`}><FormattedAnswer text={result?.answer || advocate.result}/></div></>}
+      </article>
+    })}</div>
+    <div className="explain"><Info/><p><b>جدایی استدلال‌ها:</b> هر وکیل با یک درخواست مستقل و هم‌زمان پاسخ می‌دهد؛ هیچ‌یک استدلال طرف دیگر را تولید نمی‌کند.</p></div>
+    <div className="future-note"><Sparkles/><p><b>قابلیت نسخه‌های پیشرفته‌تر:</b> هر وکیل می‌تواند پاسخ وکیل طرف مقابل را بخواند و در یک دور دوم، پاسخ متقابل و استدلال تکمیلی ارائه کند.</p></div>
+  </div>
 }
 
 function InlineBold({ text }: { text: string }) {
@@ -383,6 +413,7 @@ function SettingsModal({ initial, connection, message, onTest, onSave, onClose }
     <button className="modal-close" onClick={onClose}><X/></button>
     <div className="settings-heading"><span className="modal-icon"><Settings2/></span><div><small>درگاه استدلال سامانه</small><h2 id="settings-title">تنظیمات مدل زبانی</h2></div></div>
     <p className="settings-intro">هر عامل یک درخواست مستقل به این مدل می‌فرستد. کلید API فقط در حافظه این صفحه می‌ماند و ذخیره نمی‌شود.</p>
+    <div className="future-note compact-note"><Search/><p><b>ابزارهای مدل در نسخه‌های پیشرفته‌تر:</b> مدل می‌تواند با Tool Calling از ابزارهایی مانند جست‌وجوی وب، بررسی پایگاه‌های رسمی و سرویس‌های تخصصی استفاده کند.</p></div>
     <div className="provider-switch"><button className={draft.provider === 'ollama' ? 'active' : ''} onClick={() => switchProvider('ollama')}><span className="provider-mark local">L</span><span><b>مدل محلی</b><small>Ollama روی رایانه شما</small></span></button><button className={draft.provider === 'openai-compatible' ? 'active' : ''} onClick={() => switchProvider('openai-compatible')}><span className="provider-mark api">A</span><span><b>API سازگار</b><small>OpenAI یا سرویس مشابه</small></span></button></div>
     <div className="settings-fields">
       <label><span>نشانی سرویس</span><input dir="ltr" value={draft.baseUrl} placeholder={defaults.url} onChange={(e) => update('baseUrl', e.target.value)}/><small>{draft.provider === 'ollama' ? 'نشانی پیش‌فرض Ollama؛ بدون / در انتها' : 'نشانی باید به مسیر نسخه API مانند /v1 ختم شود'}</small></label>
@@ -412,7 +443,7 @@ function UploadModal({ onClose, onPick, onStart, fileRef }: any) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'خطای ناشناخته') }
     finally { setLoading(false) }
   }
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title"><button className="modal-close" onClick={onClose}><X/></button><span className="modal-icon"><Upload/></span><h2 id="upload-title">افزودن پرونده برای تحلیل</h2><p>متن PDF واقعی استخراج و به‌عنوان ورودی همه عامل‌ها استفاده می‌شود. PDF اسکن‌شده به OCR نیاز دارد.</p><button className="dropzone" onClick={onPick} disabled={loading}><FileText/><b>{file ? file.name : 'فایل PDF را انتخاب کنید'}</b><small>PDF متنی · حداکثر ۲۵ مگابایت</small></button><input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] || null); setError('') }}/><div className="privacy"><Shield/><span>فایل به پایگاه دانش اضافه نمی‌شود؛ فقط متن آن در تحلیل جاری استفاده می‌شود.</span></div>{error && <div className="upload-error"><AlertCircle/>{error}</div>}<button className="primary full" disabled={!file || loading} onClick={() => void upload()}>{loading ? 'در حال خواندن PDF…' : 'افزودن و آغاز تحلیل'}<ArrowLeft/></button></div></div>
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title"><button className="modal-close" onClick={onClose}><X/></button><span className="modal-icon"><Upload/></span><h2 id="upload-title">افزودن پرونده برای تحلیل</h2><p>متن PDF واقعی استخراج و به‌عنوان ورودی همه عامل‌ها استفاده می‌شود. PDF اسکن‌شده به OCR نیاز دارد.</p><div className="future-note compact-note upload-future"><Sparkles/><p><b>قابلیت نسخه‌های پیشرفته‌تر:</b> فرمت‌های بیشتر مانند تصویر، PDF اسکن‌شده، فایل صوتی و صدای جلسه با OCR و ASR قابل پردازش خواهند بود.</p></div><button className="dropzone" onClick={onPick} disabled={loading}><FileText/><b>{file ? file.name : 'فایل PDF را انتخاب کنید'}</b><small>PDF متنی · حداکثر ۲۵ مگابایت</small></button><input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] || null); setError('') }}/><div className="privacy"><Shield/><span>فایل به پایگاه دانش اضافه نمی‌شود؛ فقط متن آن در تحلیل جاری استفاده می‌شود.</span></div>{error && <div className="upload-error"><AlertCircle/>{error}</div>}<button className="primary full" disabled={!file || loading} onClick={() => void upload()}>{loading ? 'در حال خواندن PDF…' : 'افزودن و آغاز تحلیل'}<ArrowLeft/></button></div></div>
 }
 
 export default App

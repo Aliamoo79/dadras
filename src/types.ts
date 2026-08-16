@@ -12,6 +12,8 @@ export interface Agent {
   result: string
   evidence: string[]
   instruction: string
+  parallelGroup?: string
+  perspective?: 'claimant' | 'defendant'
 }
 
 export type LlmProvider = 'ollama' | 'openai-compatible'
