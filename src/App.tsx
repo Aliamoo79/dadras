@@ -39,7 +39,7 @@ function App() {
     const agent = agents[activeStep]
     const activeAgents = agent.parallelGroup ? agents.filter((item) => item.parallelGroup === agent.parallelGroup) : [agent]
     let cancelled = false
-    const controller = new AbortController()
+    const controllers = activeAgents.map(() => new AbortController())
     setSelectedAgent(activeStep)
     setAgentErrors((current) => { const next = { ...current }; activeAgents.forEach((item) => delete next[item.id]); return next })
     const previousOutputs = agents.slice(0, activeStep).flatMap((item) => agentResults[item.id] ? [{ title: item.title, answer: agentResults[item.id].answer }] : [])
@@ -47,10 +47,10 @@ function App() {
 
     void (async () => {
       try {
-        const runAgent = async (currentAgent: typeof agent) => {
+        const runAgent = async (currentAgent: typeof agent, signal: AbortSignal) => {
           try {
             const response = await fetch('/api/llm/agent', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
               body: JSON.stringify({ settings, agent: { id: currentAgent.id, title: currentAgent.title, instruction: currentAgent.instruction }, caseData, previousOutputs }),
             })
             if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'پاسخی از مدل دریافت نشد.') }
@@ -80,13 +80,15 @@ function App() {
             throw error
           }
         }
-        await Promise.all(activeAgents.map(runAgent))
-        if (!cancelled) setActiveStep((value) => value + activeAgents.length)
-      } catch (error) {
+        const outcomes = await Promise.allSettled(activeAgents.map((currentAgent, index) => runAgent(currentAgent, controllers[index].signal)))
+        if (cancelled) return
+        if (outcomes.some((outcome) => outcome.status === 'rejected')) setPaused(true)
+        else setActiveStep((value) => value + activeAgents.length)
+      } catch {
         if (!cancelled) setPaused(true)
       }
     })()
-    return () => { cancelled = true; controller.abort() }
+    return () => { cancelled = true; controllers.forEach((controller) => controller.abort()) }
   }, [activeStep, paused, running])
 
   useEffect(() => {

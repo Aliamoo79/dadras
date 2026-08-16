@@ -9,6 +9,10 @@
 .agent-copy { flex: 1; overflow: hidden; }
 .agent-copy small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Keep the case controls close to the workflow progress indicator. */
+.workspace { padding-top: 16px; }
+.workspace-head { margin-bottom: 12px; }
+
 .agent-detail { max-height: 610px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .reason-box.llm-answer { padding: 0; overflow: hidden; white-space: normal; }
 .answer-document { border-right: 4px solid #174b57; padding: 22px 25px 24px; color: #273a40; font-size: 14px; line-height: 2.15; }
