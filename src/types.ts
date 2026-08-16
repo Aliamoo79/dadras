@@ -30,6 +30,28 @@ export interface AgentResponse {
   elapsedMs: number
 }
 
+export interface LogEntry {
+  id: string
+  timestamp: string
+  level: 'info' | 'warn' | 'error'
+  event: string
+  requestId?: string
+  method?: string
+  path?: string
+  status?: number
+  elapsedMs?: number
+  provider?: string
+  model?: string
+  endpoint?: string
+  agent?: string
+  caseId?: string
+  error?: string
+  errorType?: string
+  upstreamStatus?: number
+  upstreamBody?: unknown
+  [key: string]: unknown
+}
+
 export interface CaseData {
   id: string
   title: string

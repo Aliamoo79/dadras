@@ -147,6 +147,7 @@ Open `http://localhost:5173`. Vite proxies `/api` to the local gateway at `http:
 - Ten sequential, specialized model requests across five judicial layers
 - Previous agent responses passed into the next agent as context
 - Live model output, model identifier, elapsed time, and failure details
+- In-app diagnostics page with request IDs, upstream errors, filtering, and bounded recent logs
 - Configurable Ollama or OpenAI-compatible provider with connection testing
 - Proposed judgment and a mandatory human-review checkpoint
 - Persian RTL responsive interface with keyboard and reduced-motion support

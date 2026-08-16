@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Upload, Wifi, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Bug, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RefreshCw, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Trash2, Upload, Wifi, X } from 'lucide-react'
 import { agents, legalCitations, sampleCases } from './data'
-import type { AgentResponse, CaseData, LlmSettings } from './types'
+import type { AgentResponse, CaseData, LlmSettings, LogEntry } from './types'
 
-type Screen = 'home' | 'workspace'
+type Screen = 'home' | 'workspace' | 'logs'
 type Tab = 'agents' | 'verdict' | 'citations'
 type ConnectionState = 'untested' | 'testing' | 'connected' | 'failed'
 
@@ -114,6 +114,7 @@ function App() {
         <nav className={mobileMenu ? 'nav open' : 'nav'} aria-label="ناوبری اصلی">
           <button className={screen === 'home' ? 'active' : ''} onClick={() => { setScreen('home'); setMobileMenu(false) }}>میز کار</button>
           <button onClick={() => { setScreen('workspace'); setMobileMenu(false) }}>پرونده‌ها</button>
+          <button className={screen === 'logs' ? 'active' : ''} onClick={() => { setScreen('logs'); setMobileMenu(false) }}>گزارش خطاها</button>
           <button onClick={() => setMobileMenu(false)}>پایگاه قوانین</button>
           <button onClick={() => setMobileMenu(false)}>راهنما</button>
         </nav>
@@ -127,7 +128,7 @@ function App() {
 
       <div className="notice"><Shield size={16}/><span><b>محیط نمایشی و آموزشی</b> — خروجی سامانه صرفاً پیشنهادی است و اعتبار قضایی ندارد. تصمیم نهایی باید توسط قاضی انسانی تأیید شود.</span></div>
 
-      {screen === 'home' ? <Home onStart={startCase} onUpload={() => setUploadOpen(true)} /> : (
+      {screen === 'home' ? <Home onStart={startCase} onUpload={() => setUploadOpen(true)} /> : screen === 'logs' ? <LogsPage/> : (
         <Workspace caseData={caseData} activeStep={activeStep} progress={progress} paused={paused} finished={finished} selectedAgent={selectedAgent} tab={tab} setTab={setTab} setSelectedAgent={setSelectedAgent} statusFor={statusFor} agentResults={agentResults} agentErrors={agentErrors} model={settings.model} onStart={() => startCase()} onPause={() => setPaused(!paused)} onReset={reset} onSettings={() => setSettingsOpen(true)}/>
       )}
 
@@ -135,6 +136,59 @@ function App() {
       {settingsOpen && <SettingsModal initial={settings} connection={connection} message={connectionMessage} onTest={testConnection} onSave={saveSettings} onClose={() => setSettingsOpen(false)}/>}
     </div>
   )
+}
+
+function LogsPage() {
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [level, setLevel] = useState<'all' | LogEntry['level']>('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [selected, setSelected] = useState<string | null>(null)
+
+  const loadLogs = async () => {
+    setLoading(true); setError('')
+    try {
+      const response = await fetch(`/api/logs?level=${level}&limit=500`)
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'دریافت گزارش‌ها ناموفق بود.')
+      setLogs(body.logs || [])
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'خطای ناشناخته') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { void loadLogs() }, [level])
+
+  const clearLogs = async () => {
+    if (!window.confirm('همه گزارش‌های فعلی پاک شوند؟')) return
+    try {
+      const response = await fetch('/api/logs', { method: 'DELETE' })
+      if (!response.ok) throw new Error('پاک‌کردن گزارش‌ها ناموفق بود.')
+      await loadLogs()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'خطای ناشناخته') }
+  }
+
+  const errors = logs.filter((entry) => entry.level === 'error').length
+  const warnings = logs.filter((entry) => entry.level === 'warn').length
+  return <main className="logs-page">
+    <div className="logs-head"><div><span>عیب‌یابی درگاه مدل</span><h1>گزارش درخواست‌ها و خطاها</h1><p>آخرین ۵۰۰ رویداد این اجرای سرور؛ کلیدهای API در گزارش ذخیره نمی‌شوند.</p></div><div className="logs-actions"><button className="secondary" onClick={() => void loadLogs()} disabled={loading}><RefreshCw className={loading ? 'rotating' : ''}/>تازه‌سازی</button><button className="danger-button" onClick={() => void clearLogs()}><Trash2/>پاک‌کردن</button></div></div>
+    <div className="log-stats"><div><Bug/><span><small>رویدادهای نمایشی</small><b>{faNumber(logs.length)}</b></span></div><div className="error"><AlertCircle/><span><small>خطا</small><b>{faNumber(errors)}</b></span></div><div className="warn"><AlertTriangle/><span><small>هشدار</small><b>{faNumber(warnings)}</b></span></div></div>
+    <section className="logs-panel">
+      <div className="logs-toolbar"><div className="log-filters">{(['all', 'error', 'warn', 'info'] as const).map((item) => <button key={item} className={level === item ? 'active' : ''} onClick={() => setLevel(item)}>{item === 'all' ? 'همه' : item === 'error' ? 'خطاها' : item === 'warn' ? 'هشدارها' : 'اطلاعات'}</button>)}</div><small>جدیدترین رویداد در بالا</small></div>
+      {error && <div className="logs-fetch-error"><AlertCircle/>{error}</div>}
+      {!loading && !error && logs.length === 0 && <div className="logs-empty"><CheckCircle2/><b>گزارشی برای نمایش نیست</b><p>پس از آزمایش اتصال یا اجرای عامل‌ها، رویدادها اینجا ظاهر می‌شوند.</p></div>}
+      <div className="log-list">{logs.map((entry) => <article key={entry.id} className={`log-row ${entry.level}`}>
+        <button className="log-summary" onClick={() => setSelected(selected === entry.id ? null : entry.id)}>
+          <span className="log-level">{entry.level === 'error' ? <AlertCircle/> : entry.level === 'warn' ? <AlertTriangle/> : <Info/>}</span>
+          <span className="log-main"><b>{entry.error || entry.event}</b><small>{entry.event} {entry.agent ? `· ${entry.agent}` : ''} {entry.model ? `· ${entry.model}` : ''}</small></span>
+          <span className="log-code">{entry.upstreamStatus || entry.status || '—'}</span>
+          <time dir="ltr">{new Date(entry.timestamp).toLocaleString('fa-IR')}</time><ChevronDown className={selected === entry.id ? 'open' : ''}/>
+        </button>
+        {selected === entry.id && <div className="log-details"><dl>
+          <div><dt>شناسه درخواست</dt><dd>{entry.requestId || '—'}</dd></div><div><dt>زمان پاسخ</dt><dd>{entry.elapsedMs != null ? `${entry.elapsedMs} ms` : '—'}</dd></div><div><dt>مسیر</dt><dd>{entry.endpoint || entry.path || '—'}</dd></div><div><dt>پرونده</dt><dd>{entry.caseId || '—'}</dd></div>
+        </dl><pre dir="ltr">{JSON.stringify(entry, null, 2)}</pre></div>}
+      </article>)}</div>
+    </section>
+  </main>
 }
 
 function Home({ onStart, onUpload }: { onStart: (c: CaseData) => void; onUpload: () => void }) {
