@@ -67,6 +67,16 @@ echo "Using Node.js $(node --version) and npm $(npm --version)."
 chmod +x "$PROJECT_ROOT/restart.sh"
 "$PROJECT_ROOT/restart.sh"
 
+echo "Registering PM2 for automatic startup after reboot..."
+pm2_user="${SUDO_USER:-$(id -un)}"
+pm2_home="$(getent passwd "$pm2_user" | cut -d: -f6)"
+if [[ -z "$pm2_home" ]]; then
+  echo "Error: could not determine the home directory for PM2 user $pm2_user." >&2
+  exit 1
+fi
+"${SUDO[@]}" env PATH="$PATH" "$PROJECT_ROOT/node_modules/.bin/pm2" startup systemd -u "$pm2_user" --hp "$pm2_home"
+"$PROJECT_ROOT/node_modules/.bin/pm2" save
+
 echo "Configuring Nginx..."
 nginx_config="$(mktemp)"
 trap 'rm -f -- "${nginx_config:-}"' EXIT

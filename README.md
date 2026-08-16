@@ -87,9 +87,16 @@ The script performs these actions:
 
 1. Installs exactly the dependencies in `package-lock.json` with `npm ci`.
 2. Creates the production frontend with `npm run build`.
-3. Stops only the previously recorded Dadras server after verifying its PID, working directory, and command.
-4. Starts the Express application on `127.0.0.1:8787`.
-5. Tests `/api/health` and writes runtime output to `dadras.log`.
+3. Safely removes a legacy `nohup` Dadras process when upgrading an older installation.
+4. Starts or reloads the Express application with the project-local PM2 installation.
+5. Saves the PM2 process list and verifies `/api/health`.
+
+Register PM2 once so the saved Dadras process returns automatically after a VPS reboot:
+
+```bash
+sudo env PATH="$PATH" "$PWD/node_modules/.bin/pm2" startup systemd -u "$USER" --hp "$HOME"
+./node_modules/.bin/pm2 save
+```
 
 After pulling future changes, the complete update is:
 
@@ -101,8 +108,10 @@ git pull --ff-only
 Inspect logs with:
 
 ```bash
-tail -f dadras.log
+./node_modules/.bin/pm2 logs dadras
 ```
+
+Check or control the process with `./node_modules/.bin/pm2 status`, `restart dadras`, and `stop dadras`.
 
 ### 5. Configure Nginx
 

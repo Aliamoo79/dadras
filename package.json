@@ -13,16 +13,20 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
+    "express": "latest",
+    "lucide-react": "latest",
+    "pm2": "7.0.3",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest",
-    "express": "latest"
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "concurrently": "latest"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1"
   }
 }

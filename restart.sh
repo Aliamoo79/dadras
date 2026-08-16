@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$PROJECT_ROOT/.dadras.pid"
-LOG_FILE="$PROJECT_ROOT/dadras.log"
 PORT="${PORT:-8787}"
 HOST="${HOST:-127.0.0.1}"
 
@@ -33,6 +32,13 @@ npm ci
 echo "Building the production frontend..."
 npm run build
 
+PM2_BIN="$PROJECT_ROOT/node_modules/.bin/pm2"
+if [[ ! -x "$PM2_BIN" ]]; then
+  echo "Error: project-local PM2 was not installed by npm ci." >&2
+  exit 1
+fi
+
+# Remove only the legacy nohup process created by older versions of restart.sh.
 if [[ -f "$PID_FILE" ]]; then
   previous_pid="$(tr -dc '0-9' < "$PID_FILE")"
   if [[ -n "$previous_pid" ]] && kill -0 "$previous_pid" 2>/dev/null; then
@@ -59,26 +65,27 @@ if [[ -f "$PID_FILE" ]]; then
   rm -f -- "$PID_FILE"
 fi
 
-echo "Starting Dadras on $HOST:$PORT..."
-nohup env NODE_ENV=production HOST="$HOST" PORT="$PORT" node server/index.mjs >>"$LOG_FILE" 2>&1 &
-dadras_pid=$!
-printf '%s' "$dadras_pid" > "$PID_FILE"
-
-sleep 2
-if ! kill -0 "$dadras_pid" 2>/dev/null; then
-  echo "Dadras failed to start. Recent log output:" >&2
-  tail -n 40 "$LOG_FILE" >&2 || true
-  rm -f -- "$PID_FILE"
-  exit 1
-fi
+echo "Starting or reloading Dadras with PM2 on $HOST:$PORT..."
+HOST="$HOST" PORT="$PORT" "$PM2_BIN" startOrReload ecosystem.config.cjs --update-env
+"$PM2_BIN" save
 
 if command -v curl >/dev/null 2>&1; then
-  curl --fail --silent --show-error "http://127.0.0.1:$PORT/api/health" >/dev/null
+  for _ in {1..10}; do
+    if curl --fail --silent "http://127.0.0.1:$PORT/api/health" >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  if ! curl --fail --silent --show-error "http://127.0.0.1:$PORT/api/health" >/dev/null; then
+    echo "Dadras failed its health check. Recent PM2 logs:" >&2
+    "$PM2_BIN" logs dadras --lines 40 --nostream >&2 || true
+    exit 1
+  fi
 fi
 
-echo "Dadras restarted successfully (PID $dadras_pid)."
+echo "Dadras is online under PM2."
 echo "Listening address: http://$HOST:$PORT"
-echo "Log file: $LOG_FILE"
+echo "Logs: $PM2_BIN logs dadras"
 if [[ "$HOST" == "0.0.0.0" || "$HOST" == "::" ]]; then
   echo "Public access enabled. Open only TCP port $PORT in the firewall; do not expose the Ollama port."
 else
