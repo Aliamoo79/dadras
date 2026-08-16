@@ -9,6 +9,7 @@ const port = Number(process.env.PORT || 8787)
 const host = String(process.env.HOST || '127.0.0.1')
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MAX_LOGS = 500
+const MODEL_REQUEST_TIMEOUT_MS = 180_000
 const logs = []
 
 const redactUrl = (value) => {
@@ -116,7 +117,7 @@ async function callModel(settings, messages, testOnly = false, context = {}) {
       return { answer: 'اتصال به Ollama و مدل با موفقیت بررسی شد.', model: settings.model, elapsedMs: Date.now() - started }
     }
     const response = await fetchModel(`${baseUrl}/api/chat`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(180_000),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(MODEL_REQUEST_TIMEOUT_MS),
       body: JSON.stringify({ model: settings.model, messages, stream: false, options: { temperature: Number(settings.temperature ?? 0.2) } }),
     })
     const data = await response.json()
@@ -128,7 +129,7 @@ async function callModel(settings, messages, testOnly = false, context = {}) {
   const headers = { 'Content-Type': 'application/json', ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) }
   const url = `${baseUrl}/chat/completions`
   const response = await fetchModel(url, {
-    method: 'POST', headers, signal: AbortSignal.timeout(testOnly ? 20_000 : 180_000),
+    method: 'POST', headers, signal: AbortSignal.timeout(MODEL_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       model: settings.model,
       messages: testOnly ? [{ role: 'user', content: 'Reply with exactly: connection-ok' }] : messages,
@@ -155,7 +156,7 @@ async function streamModel(settings, messages, onDelta, context = {}, signal) {
   let answer = ''
 
   try {
-    const timeoutSignal = AbortSignal.timeout(180_000)
+    const timeoutSignal = AbortSignal.timeout(MODEL_REQUEST_TIMEOUT_MS)
     const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal })
     if (!response.ok) {
       const failure = await parseFailure(response)
