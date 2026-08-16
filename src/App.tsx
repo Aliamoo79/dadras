@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, AlertTriangle, ArrowLeft, BookOpenCheck, Bug, Check, CheckCircle2, ChevronDown, ChevronLeft, CircleDashed, Clock3, Eye, EyeOff, FileText, Gavel, Info, Menu, Pause, Play, RefreshCw, RotateCcw, Scale, Search, Settings2, Shield, ShieldCheck, Sparkles, Trash2, Upload, Wifi, X } from 'lucide-react'
-import { agents, legalCitations, sampleCases } from './data'
-import type { AgentResponse, CaseData, KnowledgeDocument, LlmSettings, LogEntry } from './types'
+import { agents, sampleCases } from './data'
+import type { AgentResponse, CaseData, KnowledgeDocument, LlmSettings, LogEntry, RagReference } from './types'
 
 type Screen = 'home' | 'workspace' | 'logs' | 'knowledge'
 type Tab = 'agents' | 'verdict' | 'citations'
@@ -74,7 +74,7 @@ function App() {
               setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { model: settings.model, elapsedMs: 0 }), answer: `${current[agent.id]?.answer || ''}${event.delta}` } }))
             } else if (event.type === 'done' && !cancelled) {
               completed = true
-              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), answer: event.answer || current[agent.id]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0 } }))
+              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), answer: event.answer || current[agent.id]?.answer || '', model: event.model || settings.model, elapsedMs: event.elapsedMs || 0, references: event.references || [] } }))
             } else if (event.type === 'error') throw new Error(event.error || 'جریان پاسخ مدل قطع شد.')
           }
         }
@@ -304,6 +304,7 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
   const selected = agents[selectedAgent]
   const selectedResult: AgentResponse | undefined = agentResults[selected.id]
   const selectedError: string | undefined = agentErrors[selected.id]
+  const ragReferences: RagReference[] = Object.values(agentResults as Record<string, AgentResponse>).flatMap((result) => result.references || [])
   return <main className="workspace">
     <div className="workspace-head">
       <div><span className="crumb">پرونده‌ها / {caseData.id}</span><h1>{caseData.title}</h1><p>{caseData.branch} · ثبت {caseData.filedAt}</p></div>
@@ -328,14 +329,14 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
       <section className="main-panel">
         <div className="tabs" role="tablist"><button className={tab === 'agents' ? 'active' : ''} onClick={() => setTab('agents')}>گردش عامل‌ها</button><button className={tab === 'verdict' ? 'active' : ''} onClick={() => setTab('verdict')}>رأی پیشنهادی {finished && <span>آماده</span>}</button><button className={tab === 'citations' ? 'active' : ''} onClick={() => setTab('citations')}>استنادات قانونی</button></div>
         {tab === 'agents' && <div className="agents-layout">
-          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; const preview = agentResults[agent.id]?.answer; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{preview ? `${preview.replace(/\s+/g, ' ').slice(0, 92)}${preview.length > 92 ? '…' : ''}` : `${agent.layer} · ${agent.subtitle}`}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
+          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
           <div className="agent-detail">
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
             {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' && !selectedResult?.answer ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>با دریافت نخستین بخش پاسخ، متن به‌صورت زنده نمایش داده می‌شود.</p></div> : <><div className="response-meta"><span><Sparkles/> {statusFor(selectedAgent) === 'running' ? 'پاسخ زنده مدل' : 'پاسخ مستقیم مدل'}</span><span>{selectedResult?.model} {statusFor(selectedAgent) === 'running' ? '· در حال دریافت…' : selectedResult ? `· ${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className={`reason-box llm-answer ${statusFor(selectedAgent) === 'running' ? 'streaming' : ''}`}><FormattedAnswer text={selectedResult?.answer || selected.result}/></div>{statusFor(selectedAgent) !== 'running' && <div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div>}</>}
           </div>
         </div>}
         {tab === 'verdict' && <Verdict ready={finished} modelAnswer={agentResults.synthesis?.answer}/>}
-        {tab === 'citations' && <Citations/>}
+        {tab === 'citations' && <Citations references={ragReferences}/>}
       </section>
     </div>
   </main>
@@ -367,8 +368,9 @@ function Verdict({ ready, modelAnswer }: { ready: boolean; modelAnswer?: string 
   </div>
 }
 
-function Citations() {
-  return <div className="citations"><div className="citation-summary"><BookOpenCheck/><div><b>اعتبارسنجی پایگاه دانش نمونه</b><span>آخرین بررسی نمایشی: امروز، ساعت ۱۰:۴۲</span></div><strong>۳ / ۳</strong></div>{legalCitations.map((c) => <article key={c.code}><div><h3>{c.code}</h3><p>{c.text}</p></div><div className="citation-tags"><span><CheckCircle2/>{c.status}</span><span className={c.relevance === 'نیازمند بررسی' ? 'review' : ''}>{c.relevance}</span></div></article>)}</div>
+function Citations({ references }: { references: RagReference[] }) {
+  const unique = [...new Map(references.map((reference) => [`${reference.source}:${reference.page || ''}:${reference.citation || ''}:${reference.text}`, reference])).values()]
+  return <div className="citations"><div className="citation-summary"><BookOpenCheck/><div><b>منابع واقعی بازیابی‌شده</b><span>این فهرست مستقیماً از متن‌هایی می‌آید که RAG برای همین پرونده بازیابی کرده است.</span></div><strong>{faNumber(unique.length)}</strong></div>{unique.length === 0 ? <div className="citation-empty"><CircleDashed/><b>هنوز منبعی بازیابی نشده است</b><p>پس از اجرای عامل بازیابی دانش، منابع و صفحه‌های واقعی در اینجا نمایش داده می‌شوند.</p></div> : unique.map((reference, index) => <article key={`${reference.source}-${reference.page}-${index}`}><div className="citation-body"><h3>{reference.title}</h3><div className="citation-location">{reference.citation && <span>{reference.citation}</span>}{reference.page && <span>صفحه {faNumber(reference.page)}</span>}<span dir="ltr">{reference.source}</span></div><p>{reference.text}</p>{reference.sourceUrl && <a href={reference.sourceUrl} target="_blank" rel="noreferrer">مشاهده منبع <ArrowLeft/></a>}</div><div className="citation-tags"><span><CheckCircle2/>بازیابی مستقیم</span><span>رتبه {faNumber(index + 1)}</span></div></article>)}</div>
 }
 
 function SettingsModal({ initial, connection, message, onTest, onSave, onClose }: { initial: LlmSettings; connection: ConnectionState; message: string; onTest: (value: LlmSettings) => Promise<boolean>; onSave: (value: LlmSettings) => void; onClose: () => void }) {

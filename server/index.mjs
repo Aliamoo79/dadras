@@ -255,7 +255,10 @@ app.post('/api/llm/agent', async (req, res) => {
       { requestId: req.requestId, agent: agent.title, caseId: caseData.id },
       abortController.signal,
     )
-    send({ type: 'done', answer: result.answer, model: result.model, elapsedMs: result.elapsedMs })
+    send({
+      type: 'done', answer: result.answer, model: result.model, elapsedMs: result.elapsedMs,
+      references: references.map(({ title, source, sourceUrl, page, citation, text }) => ({ title, source, sourceUrl, page, citation, text })),
+    })
     res.end()
   } catch (error) {
     addLog('error', 'agent_request_failed', { requestId: req.requestId, agent: req.body?.agent?.title, caseId: req.body?.caseData?.id, model: req.body?.settings?.model, error: error instanceof Error ? error.message : String(error) })

@@ -19,6 +19,16 @@
 @keyframes answer-cursor { 50% { opacity: 0; } }
 .generated-verdict { white-space: normal; }
 .generated-verdict .answer-document { border-right-color: #b96e3d; padding-top: 10px; }
+.citation-body { min-width: 0; flex: 1; }
+.citation-location { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.citation-location span { border: 1px solid #dbe3e0; border-radius: 7px; padding: 3px 7px; color: #5b7478; font-size: 9px; }
+.citation-body p { max-height: 120px; overflow-y: auto; padding-left: 8px; line-height: 1.9; }
+.citation-body a { display: inline-flex; align-items: center; gap: 5px; color: #a35e34; font-size: 10px; font-weight: 700; text-decoration: none; }
+.citation-body a svg { width: 13px; }
+.citation-empty { min-height: 330px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6c7c80; }
+.citation-empty svg { width: 38px; height: 38px; margin-bottom: 12px; }
+.citation-empty b { color: #173f49; }
+.citation-empty p { max-width: 430px; line-height: 2; }
 
 .knowledge-page { width: min(1180px, calc(100% - 40px)); margin: 42px auto 70px; }
 .knowledge-head { display: flex; justify-content: space-between; gap: 30px; align-items: center; margin-bottom: 26px; }
@@ -53,4 +63,5 @@
   .knowledge-head > svg { display: none; }
   .knowledge-actions { flex-direction: column; }
   .knowledge-actions > * { justify-content: center; width: 100%; }
+  .citations article { flex-direction: column; gap: 12px; }
 }

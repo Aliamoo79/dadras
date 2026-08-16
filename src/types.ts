@@ -28,6 +28,16 @@ export interface AgentResponse {
   answer: string
   model: string
   elapsedMs: number
+  references?: RagReference[]
+}
+
+export interface RagReference {
+  title: string
+  source: string
+  sourceUrl?: string
+  page?: number | null
+  citation?: string | null
+  text: string
 }
 
 export interface LogEntry {
