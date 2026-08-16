@@ -38,23 +38,53 @@ function App() {
     if (!running || paused) return
     const agent = agents[activeStep]
     let cancelled = false
+    const controller = new AbortController()
     setSelectedAgent(activeStep)
     setAgentErrors((current) => { const next = { ...current }; delete next[agent.id]; return next })
     const previousOutputs = agents.slice(0, activeStep).flatMap((item) => agentResults[item.id] ? [{ title: item.title, answer: agentResults[item.id].answer }] : [])
-    fetch('/api/llm/agent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings, agent: { title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
-    }).then(async (response) => {
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error || 'پاسخی از مدل دریافت نشد.')
-      if (!cancelled) {
-        setAgentResults((current) => ({ ...current, [agent.id]: body }))
-        setActiveStep((value) => value + 1)
+    setAgentResults((current) => ({ ...current, [agent.id]: { answer: '', model: settings.model, elapsedMs: 0 } }))
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/llm/agent', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+          body: JSON.stringify({ settings, agent: { title: agent.title, instruction: agent.instruction }, caseData, previousOutputs }),
+        })
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}))
+          throw new Error(body.error || 'پاسخی از مدل دریافت نشد.')
+        }
+        if (!response.body) throw new Error('جریان پاسخ مدل در مرورگر در دسترس نیست.')
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let completed = false
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split(/\r?\n\r?\n/)
+          buffer = blocks.pop() || ''
+          for (const block of blocks) {
+            const line = block.split(/\r?\n/).find((item) => item.startsWith('data:'))
+            if (!line) continue
+            const event = JSON.parse(line.slice(5).trim())
+            if (event.type === 'delta' && !cancelled) {
+              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { model: settings.model, elapsedMs: 0 }), answer: `${current[agent.id]?.answer || ''}${event.delta}` } }))
+            } else if (event.type === 'done' && !cancelled) {
+              completed = true
+              setAgentResults((current) => ({ ...current, [agent.id]: { ...(current[agent.id] || { answer: '' }), model: event.model || settings.model, elapsedMs: event.elapsedMs || 0 } }))
+            } else if (event.type === 'error') throw new Error(event.error || 'جریان پاسخ مدل قطع شد.')
+          }
+        }
+        if (!completed) throw new Error('جریان پاسخ پیش از تکمیل قطع شد.')
+        if (!cancelled) setActiveStep((value) => value + 1)
+      } catch (error) {
+        if (!cancelled) { setAgentErrors((current) => ({ ...current, [agent.id]: error instanceof Error ? error.message : 'خطای ناشناخته جریان' })); setPaused(true) }
       }
-    }).catch((error) => {
-      if (!cancelled) { setAgentErrors((current) => ({ ...current, [agent.id]: error.message })); setPaused(true) }
-    })
-    return () => { cancelled = true }
+    })()
+    return () => { cancelled = true; controller.abort() }
   }, [activeStep, paused, running])
 
   useEffect(() => {
@@ -253,10 +283,10 @@ function Workspace({ caseData, activeStep, progress, paused, finished, selectedA
       <section className="main-panel">
         <div className="tabs" role="tablist"><button className={tab === 'agents' ? 'active' : ''} onClick={() => setTab('agents')}>گردش عامل‌ها</button><button className={tab === 'verdict' ? 'active' : ''} onClick={() => setTab('verdict')}>رأی پیشنهادی {finished && <span>آماده</span>}</button><button className={tab === 'citations' ? 'active' : ''} onClick={() => setTab('citations')}>استنادات قانونی</button></div>
         {tab === 'agents' && <div className="agents-layout">
-          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{agent.layer} · {agent.subtitle}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
+          <div className="agent-list">{agents.map((agent, index) => { const state = statusFor(index); const Icon = agent.icon; const preview = agentResults[agent.id]?.answer; return <button key={agent.id} className={`agent-row ${state} ${selectedAgent === index ? 'selected' : ''}`} onClick={() => setSelectedAgent(index)}><span className="agent-icon"><Icon/></span><span className="agent-copy"><b>{agent.title}</b><small>{preview ? `${preview.replace(/\s+/g, ' ').slice(0, 92)}${preview.length > 92 ? '…' : ''}` : `${agent.layer} · ${agent.subtitle}`}</small></span><span className="agent-status">{state === 'done' ? <Check/> : state === 'running' ? <span className="spinner"/> : state === 'error' ? <AlertCircle/> : <Clock3/>}</span></button> })}</div>
           <div className="agent-detail">
             <div className="detail-title"><span className="large-icon">{(() => { const I = selected.icon; return <I/> })()}</span><div><small>گزارش عامل · {selected.layer}</small><h2>{selected.title}</h2></div></div>
-            {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>شرح پرونده، وظیفه این عامل و خروجی مراحل پیشین برای مدل ارسال شد.</p></div> : <><div className="response-meta"><span><Sparkles/> پاسخ مستقیم مدل</span><span>{selectedResult?.model} · {selectedResult ? `${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className="reason-box llm-answer"><p>{selectedResult?.answer || selected.result}</p></div><div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div></>}
+            {selectedError ? <div className="agent-error"><AlertCircle/><div><b>ارتباط این مرحله با مدل ناموفق بود</b><p>{selectedError}</p><small>تنظیمات مدل را بررسی کنید، سپس «تلاش دوباره» را بزنید.</small></div></div> : statusFor(selectedAgent) === 'waiting' ? <div className="empty-state"><CircleDashed/><b>این عامل هنوز اجرا نشده است</b><p>پس از تکمیل مراحل پیشین، درخواست واقعی این بخش برای مدل ارسال می‌شود.</p></div> : statusFor(selectedAgent) === 'running' && !selectedResult?.answer ? <div className="llm-thinking"><span className="thinking-orbit"><Sparkles/></span><b>{model} در حال تحلیل است</b><p>با دریافت نخستین بخش پاسخ، متن به‌صورت زنده نمایش داده می‌شود.</p></div> : <><div className="response-meta"><span><Sparkles/> {statusFor(selectedAgent) === 'running' ? 'پاسخ زنده مدل' : 'پاسخ مستقیم مدل'}</span><span>{selectedResult?.model} {statusFor(selectedAgent) === 'running' ? '· در حال دریافت…' : selectedResult ? `· ${(selectedResult.elapsedMs / 1000).toFixed(1)}s` : ''}</span></div><div className={`reason-box llm-answer ${statusFor(selectedAgent) === 'running' ? 'streaming' : ''}`}><p>{selectedResult?.answer || selected.result}</p></div>{statusFor(selectedAgent) !== 'running' && <div className="explain"><Info/><p><b>شفافیت تصمیم:</b> این متن مستقیماً توسط مدل پیکربندی‌شده تولید شده است. خروجی ممکن است نادرست یا دارای استناد ساختگی باشد و باید توسط قاضی بررسی شود.</p></div>}</>}
           </div>
         </div>}
         {tab === 'verdict' && <Verdict ready={finished} modelAnswer={agentResults.synthesis?.answer}/>}

@@ -158,7 +158,7 @@ Do not expose Ollama port `11434`. Direct public access has no authentication in
 
 - Ten sequential, specialized model requests across five judicial layers
 - Previous agent responses passed into the next agent as context
-- Live model output, model identifier, elapsed time, and failure details
+- Live streamed model output with a brief preview on every agent step, model identifier, elapsed time, and failure details
 - In-app diagnostics page with request IDs, upstream errors, filtering, and bounded recent logs
 - Configurable Ollama or OpenAI-compatible provider with connection testing
 - Proposed judgment and a mandatory human-review checkpoint

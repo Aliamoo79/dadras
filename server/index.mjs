@@ -141,6 +141,71 @@ async function callModel(settings, messages, testOnly = false, context = {}) {
   return { answer: data.choices?.[0]?.message?.content || '', model: data.model || settings.model, elapsedMs: Date.now() - started }
 }
 
+async function streamModel(settings, messages, onDelta, context = {}, signal) {
+  validateSettings(settings)
+  const baseUrl = cleanBaseUrl(settings.baseUrl)
+  const started = Date.now()
+  const isOllama = settings.provider === 'ollama'
+  const endpoint = isOllama ? `${baseUrl}/api/chat` : `${baseUrl}/chat/completions`
+  const headers = { 'Content-Type': 'application/json', ...(!isOllama && settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) }
+  const body = isOllama
+    ? { model: settings.model, messages, stream: true, options: { temperature: Number(settings.temperature ?? 0.2) } }
+    : { model: settings.model, messages, stream: true, temperature: Number(settings.temperature ?? 0.2), max_tokens: 1200 }
+  let answer = ''
+
+  try {
+    const timeoutSignal = AbortSignal.timeout(180_000)
+    const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal })
+    if (!response.ok) {
+      const failure = await parseFailure(response)
+      const error = new Error(String(failure.message || `HTTP ${response.status}`))
+      error.status = response.status
+      error.upstreamBody = failure.body
+      throw error
+    }
+    if (!response.body) throw new Error('بدنه جریان پاسخ مدل در دسترس نیست.')
+
+    const emitPayload = (raw) => {
+      const line = raw.trim()
+      if (!line || line === 'data: [DONE]' || line === '[DONE]') return
+      const jsonText = line.startsWith('data:') ? line.slice(5).trim() : line
+      let data
+      try { data = JSON.parse(jsonText) } catch { return }
+      const delta = isOllama ? data.message?.content : data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content
+      if (typeof delta === 'string' && delta) { answer += delta; onDelta(delta) }
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) emitPayload(line)
+    }
+    buffer += decoder.decode()
+    if (buffer) emitPayload(buffer)
+    if (!answer.trim()) throw new Error('مدل جریان پاسخ متنی معتبری برنگرداند.')
+
+    const result = { answer, model: settings.model, elapsedMs: Date.now() - started }
+    addLog('info', 'model_stream_succeeded', { ...context, operation: 'agent_stream', provider: settings.provider, model: settings.model, elapsedMs: result.elapsedMs })
+    return result
+  } catch (error) {
+    addLog('error', 'model_request_failed', {
+      ...context, operation: 'agent_stream', provider: settings.provider, model: settings.model,
+      endpoint: redactUrl(endpoint), elapsedMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+      upstreamStatus: error?.status, upstreamBody: error?.upstreamBody,
+      cause: error?.cause instanceof Error ? error.cause.message : error?.cause,
+    })
+    throw error
+  }
+}
+
 app.post('/api/llm/test', async (req, res) => {
   try { res.json({ ok: true, ...(await callModel(req.body, [], true, { requestId: req.requestId })) }) }
   catch (error) {
@@ -150,17 +215,38 @@ app.post('/api/llm/test', async (req, res) => {
 })
 
 app.post('/api/llm/agent', async (req, res) => {
+  const abortController = new AbortController()
+  res.on('close', () => { if (!res.writableEnded) abortController.abort() })
   try {
     const { settings, agent, caseData, previousOutputs = [] } = req.body
     if (!agent?.title || !caseData?.summary) return res.status(400).json({ error: 'اطلاعات عامل یا پرونده ناقص است.' })
     const system = `شما عامل «${agent.title}» در یک دموی آموزشی سامانه قضایی ایران هستید. پاسخ را فقط به فارسی، روشن و حرفه‌ای بنویسید. این داده‌ها ساختگی‌اند. رأی قطعی یا مشاوره حقوقی واقعی ندهید. استدلال، عدم قطعیت و موارد نیازمند بررسی انسان را آشکار کنید. پاسخ بین ۱۲۰ تا ۲۲۰ واژه باشد و با سه عنوان «نتیجه»، «استدلال» و «نیازمند بررسی قاضی» ساختاربندی شود.`
     const previous = previousOutputs.length ? previousOutputs.map((item) => `${item.title}: ${item.answer}`).join('\n\n') : 'این نخستین مرحله است.'
     const user = `پرونده:\nشناسه: ${caseData.id}\nعنوان: ${caseData.title}\nنوع: ${caseData.category}\nطرفین: ${caseData.parties}\nمبلغ: ${caseData.amount}\nشرح: ${caseData.narrative}\n\nوظیفه این عامل:\n${agent.instruction}\n\nخروجی مراحل پیشین:\n${previous}`
-    const result = await callModel(settings, [{ role: 'system', content: system }, { role: 'user', content: user }], false, { requestId: req.requestId, agent: agent.title, caseId: caseData.id })
-    res.json(result)
+    res.status(200).set({
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    res.flushHeaders()
+    const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`)
+    const result = await streamModel(
+      settings,
+      [{ role: 'system', content: system }, { role: 'user', content: user }],
+      (delta) => send({ type: 'delta', delta }),
+      { requestId: req.requestId, agent: agent.title, caseId: caseData.id },
+      abortController.signal,
+    )
+    send({ type: 'done', model: result.model, elapsedMs: result.elapsedMs })
+    res.end()
   } catch (error) {
     addLog('error', 'agent_request_failed', { requestId: req.requestId, agent: req.body?.agent?.title, caseId: req.body?.caseData?.id, model: req.body?.settings?.model, error: error instanceof Error ? error.message : String(error) })
-    res.status(502).json({ requestId: req.requestId, error: error instanceof Error ? error.message : 'خطای ناشناخته مدل' })
+    const message = error instanceof Error ? error.message : 'خطای ناشناخته مدل'
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: 'error', requestId: req.requestId, error: message })}\n\n`)
+      res.end()
+    } else res.status(502).json({ requestId: req.requestId, error: message })
   }
 })
 
